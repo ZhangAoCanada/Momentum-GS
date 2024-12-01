@@ -12,7 +12,7 @@ Our method maintains a teacher Gaussian decoder updated with momentum, ensuring 
 To further ensure consistency across the blocks, we incorporate block weighting, dynamically adjusting each block’s weight according to its reconstruction accuracy.
 Extensive experiments on large-scale scenes show that our method consistently outperforms existing techniques, achieving a 12.8\% improvement in LPIPS over CityGaussian with much fewer divided blocks and establishing a new state of the art.
 
-# 📰News
+# 📰 News
 **[2024.12]** We release the code.
 
 # 📝 TODO
@@ -45,13 +45,19 @@ conda env create --file environment.yml
 conda activate momentum-gs
 ```
 Alternatively, you can create the environment manually.
+
+(1) Create conda environment 
 ```bash
-# Create env and install pytorch
 conda create -n momentum-gs python=3.8 -y
 conda activate momentum-gs
+```
+(2) Install pytorch
+```bash
 conda install pytorch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 pytorch-cuda=11.8 -c pytorch -c nvidia -y
+```
 
-# Install dependencies
+(3) Install dependencies
+```bash
 pip install plyfile==0.8.1 tqdm einops wandb lpips laspy colorama jaxtyping opencv-python matplotlib ipykernel torch_scatter submodules/diff-gaussian-rasterization submodules/simple-knn
 ```
 
@@ -90,7 +96,7 @@ This repository is released under the MIT license.
 
 # 🙏 Acknowledgement
 
-Our code is built upon [Scaffold-GS](https://github.com/city-super/Scaffold-GS), [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). We thank all these authors for their nicely open sourced code and their great contributions to the community.
+Our code is built upon [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting),  [Scaffold-GS](https://github.com/city-super/Scaffold-GS), and [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). We thank all these authors for their nicely open sourced code and their great contributions to the community.
 
 # 🥰 Citation
 If you find this repository helpful, please consider citing:
