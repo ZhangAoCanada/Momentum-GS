@@ -47,12 +47,12 @@ conda activate momentum-gs
 ```
 Alternatively, if the above method is too slow, you can create the environment manually.
 
-(1) Create conda environment 
+(1) Create conda environment. 
 ```bash
 conda create -n momentum-gs python=3.8 -y
 conda activate momentum-gs
 ```
-(2) Install pytorch
+(2) Install pytorch. If your CUDA verison is less than 11.7, you need to install [other version of pytorch](https://pytorch.org/get-started/previous-versions/).  
 ```bash
 conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia -y
 ```
@@ -73,11 +73,20 @@ Please see [prepare_data.md](docs/prepare_data.md) for instructions.
 
  
 ## Checkpoints
+
+```bash
+mkdir outputs
+```
+
 Please download from
 
 + **Tsinghua Cloud**: TODO
 + **Google Drive**: TODO
 + **Aliyun Drive**: TODO
+
+
+Next, please unzip these chepoints into `outputs/`
+
 
 
 ## Training

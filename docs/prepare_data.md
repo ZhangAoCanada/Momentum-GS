@@ -1,26 +1,24 @@
 # Prepare data
-
+Create data folder
 ```bash
-# Create data folder
 mkdir data
 ```
 
-### Mill19 (Building, Rubble)
+### Mill 19 (Building, Rubble)
 Please download these two scenes from [MegaNeRF](https://github.com/cmusatyalab/mega-nerf) and extract them into the `data/mill19/` directory. You may refer to the folder structure at the bottom of this page for guidance.
 + [Dowload Building](https://storage.cmusatyalab.org/mega-nerf-data/building-pixsfm.tgz)
 + [Dowload Rubble](https://storage.cmusatyalab.org/mega-nerf-data/rubble-pixsfm.tgz)
 
 
 
-### UrbanScene3D (Residence, Sci-Art)
+### UrbanScene 3D (Residence, Sci-Art)
 Please download these two scenes from [UrbanScene3D](https://github.com/Linxius/UrbanScene3D) and extract them into the `data/urbanscene3d` directory.
-Besides, please download the refined camera poses from [MegaNeRF](https://github.com/cmusatyalab/mega-nerf)
+Besides, please download the refined camera poses from [MegaNeRF](https://github.com/cmusatyalab/mega-nerf).
 + [Download Residence Camera Pose](https://storage.cmusatyalab.org/mega-nerf-data/residence-pixsfm.tgz)
 + [Download Sci-Art Camera Pose](https://storage.cmusatyalab.org/mega-nerf-data/sci-art-pixsfm.tgz)
 
-
+Next, run the following script to preprocess images.
 ```bash
-# preprocessing
 python scripts/data_preparation/copy_images.py --image_path $RAW_PHOTO_PATH --dataset_path $CAMERA_POSE_PATH
 ```
 
@@ -39,9 +37,11 @@ downsample 4X
 TODO
 
 
-### Colmap
+### Colmap and data partition
 
 For Colmap, we use the same results as [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). The following results are sourced from [this link](https://github.com/DekuLiuTesla/CityGaussian/blob/main/doc/data_preparation.md).
+
+Besides, we adopt the same divide-and-conquer strategy as CityGaussian to divide the scene into several blocks. 
 - **Google Drive**: https://drive.google.com/file/d/1Uz1pSTIpkagTml2jzkkzJ_rglS_z34p7/view?usp=sharing
 - **Baidu Netdisk**: https://pan.baidu.com/s/1zX34zftxj07dCM1x5bzmbA?pwd=1t6r
 

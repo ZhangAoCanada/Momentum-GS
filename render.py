@@ -62,10 +62,7 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     t = np.array(t_list[5:])
     fps = 1.0 / t.mean()
     print(f'Test Mean FPS: \033[1;35m{fps:.2f}\033[0m')
-    print(f'Max Inference Memory: \033[1;35m{max_memory:.2f} MB \033[0m')
-
-    with open(os.path.join(model_path, name, "ours_{}".format(iteration), "per_view_count.json"), 'w') as fp:
-            json.dump(per_view_dict, fp, indent=True)      
+    print(f'Max Inference Memory: \033[1;35m{max_memory:.2f} MB \033[0m')    
      
      
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, custom_test : str):
