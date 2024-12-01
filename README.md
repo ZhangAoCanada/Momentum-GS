@@ -54,7 +54,7 @@ conda activate momentum-gs
 ```
 (2) Install pytorch
 ```bash
-conda install pytorch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 pytorch-cuda=11.8 -c pytorch -c nvidia -y
+conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia -y
 ```
 
 (3) Install dependencies
