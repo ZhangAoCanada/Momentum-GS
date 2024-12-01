@@ -1,0 +1,27 @@
+name: momentum-gs
+channels:
+  - pytorch
+  - pyg
+  - conda-forge
+  - defaults
+dependencies:
+  - cudatoolkit=11.8
+  - plyfile=0.8.1
+  - python=3.8.19
+  - pip=24.2
+  - pytorch=2.3.1
+  - torchaudio=2.3.1
+  - torchvision=0.18.1
+  - pip:
+    - tqdm
+    - einops
+    - wandb
+    - lpips
+    - laspy
+    - colorama
+    - jaxtyping 
+    - opencv-python
+    - matplotlib
+    - torch_scatter
+    - submodules/diff-gaussian-rasterization
+    - submodules/simple-knn
