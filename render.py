@@ -41,7 +41,6 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     name_list = []
     per_view_dict = {}
     t_list = []
-    gaussian_number = 0
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         torch.cuda.reset_peak_memory_stats()
 
@@ -54,19 +53,16 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
         forward_max_memory_allocated = torch.cuda.max_memory_allocated() / (1024.0 ** 2)
         max_memory = max(max_memory, forward_max_memory_allocated)
 
-        gaussian_number += render_pkg["gaussian_number"]
         rendering = render_pkg["render"]
         gt = view.original_image[0:3, :, :]
         name_list.append('{0:05d}'.format(idx) + ".png")
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
 
-    print(f'Average Gaussian Number: \033[1;35m{gaussian_number / len(views):.5f}\033[0m')
-
     t = np.array(t_list[5:])
     fps = 1.0 / t.mean()
-    print(f'Test FPS: \033[1;35m{fps:.5f}\033[0m')
-    print(f'Max Memory: {max_memory:.4f} M')
+    print(f'Test Mean FPS: \033[1;35m{fps:.2f}\033[0m')
+    print(f'Max Inference Memory: \033[1;35m{max_memory:.2f} MB \033[0m')
 
     with open(os.path.join(model_path, name, "ours_{}".format(iteration), "per_view_count.json"), 'w') as fp:
             json.dump(per_view_dict, fp, indent=True)      

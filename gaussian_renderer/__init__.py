@@ -288,7 +288,6 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
-                "gaussian_number": xyz.shape[0],
                 }
 
 
@@ -374,7 +373,6 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
-                "gaussian_number": xyz.shape[0],
                 }
     
 

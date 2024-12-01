@@ -17,7 +17,8 @@ Extensive experiments on large-scale scenes show that our method consistently ou
 
 # 📝 TODO
 - [ ] Release pretrained checkpoints.
-- [ ] Provide guidance to divide scene into arbitrary blocks.
+- [ ] Provide guidance for dividing scene into arbitrary blocks.
+- [ ] Provide guidance for training on custom datasets.
 - [ ] Add appearance modeling.
 
 # 🏙️ Overview
@@ -44,7 +45,7 @@ SET DISTUTILS_USE_SDK=1 # Windows only
 conda env create --file environment.yml
 conda activate momentum-gs
 ```
-Alternatively, you can create the environment manually.
+Alternatively, if the above method is too slow, you can create the environment manually.
 
 (1) Create conda environment 
 ```bash
@@ -66,29 +67,79 @@ pip install plyfile==0.8.1 tqdm einops wandb lpips laspy colorama jaxtyping open
 
 The following steps are structured in order.
 
-## 📷 Prepare data
+## Prepare data
 
-Please see [prepare_data.md](docs/prepare_data.md) for installation instructions. 
+Please see [prepare_data.md](docs/prepare_data.md) for instructions. 
+
+ 
+## Checkpoints
+Please download from
+
++ **Tsinghua Cloud**: TODO
++ **Google Drive**: TODO
++ **Aliyun Drive**: TODO
 
 
-
-
-
-## 📈 Training
+## Training
 We train our Momentum-GS on GeForce RTX 3090, 24G VRAM is enough for default setting.
 
-To train our ManiGaussian without semantic features and deformation predictor (the fastest version), run:
 ```bash
-bash scripts/train_and_eval_w_geo.sh ManiGaussian_BC 0,1 12345 ${exp_name}
+bash script/train/train-<SCENE_NAME>-8blocks.sh <GPU_NUM> <GPU_LIST> <TMP_DIR>
+
+# e.g.
+# (1) Reconstruct Rubble with 4 GPUs
+bash script/train/train-rubble-8blocks.sh 4 0,1,2,3 /home/momentum-gs/tmp
+# (2) Reconstruct Rubble with 8 GPUs
+bash script/train/train-rubble-8blocks.sh 8 0,1,2,3,4,5,6,7 None
 ```
+<details>
+<summary><span style="font-weight: bold;">Command Line Arguments</span></summary>
+
+  #### \<SCENE_NAME\>
+  Support `building`, `rubble`, `residence`, `sciart`, and `matrixcity`.
 
 
-## 📊 Evaluation
+  #### \<GPU_NUM\>
+  The number of GPUs (e.g., `4`). Note that the default number of divided blocks is `8`, and the number of blocks must be divisible by `GPU_NUM`. Therefore, in the default setting, `GPU_NUM` must be one of the following values: `[1, 2, 4, 8]`.
+
+
+  #### \<GPU_LIST\>
+  ID(s) of the used GPUs (e.g., `0,1,2,3` for `GPU_NUM=4`).
+
+
+  #### \<TMP_DIR\>
+  If `GPU_NUM == BLOCK_NUM`, you can set this as `None`. If `GPU_NUM < BLOCK_NUM`, please specify a temporary folder (e.g., `/home/momentum-gs/tmp`).
+
+  Each GPU will only reconstruct one block simultaneously, while the other blocks must be temporarily stored on the disk. **Note**: It is essential to choose a solid-state drive (SSD) with fast read and write speeds (> 1GB/s), HDD are strongly discouraged. 
+  
+  As for why the blocks are moved to disk instead of memory, we found that transferring them to memory causes unknown issues that result in a decline in reconstruction quality. Despite our best efforts and numerous attempts with various methods, we could not resolve the problem. If you have a solution, please let me know! 
+</details>
+
+
+After training, you need to merge all the blocks. The following script will merge the blocks, render images from the test dataset, and perform evaluation.
+```bash
+bash merge_render_metrics.sh <OUTPUT_FOLDER>
+```
+<details>
+<summary><span style="font-weight: bold;">Command Line Arguments</span></summary>
+
+  #### \<OUTPUT_FOLDER\>
+  Path where the trained model should be stored (```output/<dataset>/<scene>/train/<exp_name>/<time>``` by default).
+</details>
+
+
+
+## Evaluation
 To evaluate the checkpoint, you can use:
 ```bash
-bash scripts/eval.sh ManiGaussian_BC ${exp_name} 0
+bash render_metrics.sh <OUTPUT_FOLDER>
 ```
-**NOTE**: The performances on `push_buttons` and `stack_blocks` may fluctuate slightly due to different variations.
+<details>
+<summary><span style="font-weight: bold;">Command Line Arguments</span></summary>
+
+  #### \<OUTPUT_FOLDER\>
+  Path where the trained model should be stored (```output/<dataset>/<scene>/...``` by default).
+</details>
 
 
 # 🏷️ License

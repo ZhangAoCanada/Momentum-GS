@@ -80,8 +80,8 @@ def evaluate(model_paths):
                 psnrs.append(psnr(renders[idx].cuda(), gts[idx].cuda()))
                 lpipss.append(lpips_fn(renders[idx].cuda(), gts[idx].cuda()).detach())
 
-            print("  SSIM : {:>12.7f}".format(torch.tensor(ssims).mean(), ".5"))
             print("  PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean(), ".5"))
+            print("  SSIM : {:>12.7f}".format(torch.tensor(ssims).mean(), ".5"))
             print("  LPIPS: {:>12.7f}".format(torch.tensor(lpipss).mean(), ".5"))
             print("")
 

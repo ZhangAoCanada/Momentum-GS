@@ -5,9 +5,6 @@
 mkdir data
 ```
 
-### Checkpoints
-TODO
-
 ### Mill19 (Building, Rubble)
 Please download these two scenes from [MegaNeRF](https://github.com/cmusatyalab/mega-nerf) and extract them into the `data/mill19/` directory. You may refer to the folder structure at the bottom of this page for guidance.
 + [Dowload Building](https://storage.cmusatyalab.org/mega-nerf-data/building-pixsfm.tgz)
