@@ -8,16 +8,16 @@ mkdir data
 
 For Colmap, we use the same results as [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). The following results are sourced from [this link](https://github.com/DekuLiuTesla/CityGaussian/blob/main/doc/data_preparation.md).
 
-+ [Download from Tsinghua Cloud](https://cloud.tsinghua.edu.cn/f/7186981a2ca64b388bd7/?dl=1)
-+ [Download from Google Drive](https://drive.google.com/file/d/1_zLhzMognWEs8OxKgRIK1oSVtpbvBKla/view?usp=drive_link)
++ [Download from Tsinghua Cloud](https://cloud.tsinghua.edu.cn/f/dcda048066d946e98598/?dl=1)
++ [Download from Google Drive](https://drive.google.com/file/d/1bebYr7v9AwRju6cT3Zg23jmDjReevLH1/view?usp=drive_link)
 
 Please download and unzip the Colmap results into `data/`.
 
 ### Scene partition
 We adopt the similar divide-and-conquer strategy as CityGaussian. The following file divide each scene into **8 blocks**. Please download and unzip into `data/`.
 
-+ [Download from Tsinghua Cloud](https://cloud.tsinghua.edu.cn/f/a9ec4f2bcf284d97b583/?dl=1)
-+ [Download from Google Drive](https://drive.google.com/file/d/1fUgiOcgeIsa-t123-81pdpMxkCqsmtqC/view?usp=drive_link)
++ [Download from Tsinghua Cloud](https://cloud.tsinghua.edu.cn/f/198d7b5909a8469bae09/?dl=1)
++ [Download from Google Drive](https://drive.google.com/file/d/1a0N4YJyeMiiRSGYkYe9OK6GUlIvixora/view?usp=drive_link)
 
 [Optional] If you wish to divide the scene into a different number of blocks, you can follow these instructions (take scene `Building` as an example):
 
