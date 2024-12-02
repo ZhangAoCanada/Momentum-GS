@@ -16,8 +16,8 @@ Extensive experiments on large-scale scenes show that our method consistently ou
 **[2024.12]** We release the code.
 
 # 📝 TODO
-- [ ] Release pretrained checkpoints.
-- [ ] Provide guidance for dividing scene into arbitrary blocks.
+- [x] Release pretrained checkpoints.
+- [x] Provide guidance for dividing scene into arbitrary blocks.
 - [ ] Provide guidance for training on custom datasets.
 - [ ] Add appearance modeling.
 
@@ -78,11 +78,8 @@ Please see [prepare_data.md](docs/prepare_data.md) for instructions.
 mkdir outputs
 ```
 
-Please download from
-
-+ **Tsinghua Cloud**: TODO
-+ **Google Drive**: TODO
-+ **Aliyun Drive**: TODO
++ [Download from Tsinghua Cloud](https://cloud.tsinghua.edu.cn/d/8cf9ae5b1a2045a6993b/)
++ [Download from Google Drive](https://drive.google.com/drive/folders/1uknG0XSEHXuQfoCZNr1AGcqNGSskVNgc?usp=drive_link)
 
 
 Next, please unzip these chepoints into `outputs/`

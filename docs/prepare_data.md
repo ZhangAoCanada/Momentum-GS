@@ -4,11 +4,49 @@ Create data folder
 mkdir data
 ```
 
+### Colmap
+
+For Colmap, we use the same results as [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). The following results are sourced from [this link](https://github.com/DekuLiuTesla/CityGaussian/blob/main/doc/data_preparation.md).
+
++ [Download from Tsinghua Cloud](https://cloud.tsinghua.edu.cn/f/7186981a2ca64b388bd7/?dl=1)
++ [Download from Google Drive](https://drive.google.com/file/d/1_zLhzMognWEs8OxKgRIK1oSVtpbvBKla/view?usp=drive_link)
+
+Please download and unzip the Colmap results into `data/`.
+
+### Scene partition
+We adopt the similar divide-and-conquer strategy as CityGaussian. The following file divide each scene into **8 blocks**. Please download and unzip into `data/`.
+
++ [Download from Tsinghua Cloud](https://cloud.tsinghua.edu.cn/f/a9ec4f2bcf284d97b583/?dl=1)
++ [Download from Google Drive](https://drive.google.com/file/d/1fUgiOcgeIsa-t123-81pdpMxkCqsmtqC/view?usp=drive_link)
+
+[Optional] If you wish to divide the scene into a different number of blocks, you can follow these instructions (take scene `Building` as an example):
+
+1. Complete all the subsequent data preparation first before starting scene partition.
+
+2. Train a coarse model for SSIM-based view filtering.
+
+```bash
+bash script/train/train-building-coarse.sh
+```
+
+3. Divide the scene
+
+```bash
+bash data_partition.sh <COARSE_MODEL_FOLDER>
+```
+
+4. Modify `block_num`, `partition_name`, and `block_dim`  in corresponding training script.
+
+
 ### Mill 19 (Building, Rubble)
 Please download these two scenes from [MegaNeRF](https://github.com/cmusatyalab/mega-nerf) and extract them into the `data/mill19/` directory. You may refer to the folder structure at the bottom of this page for guidance.
 + [Dowload Building](https://storage.cmusatyalab.org/mega-nerf-data/building-pixsfm.tgz)
 + [Dowload Rubble](https://storage.cmusatyalab.org/mega-nerf-data/rubble-pixsfm.tgz)
 
+Next, run following script to preprocess images. Please make sure you are in the `Momentum-GS/` directory.
+```bash
+bash script/data_preparation/preprocess_mill19.sh
+```
 
 
 ### UrbanScene 3D (Residence, Sci-Art)
@@ -19,33 +57,27 @@ Besides, please download the refined camera poses from [MegaNeRF](https://github
 
 Next, run the following script to preprocess images.
 ```bash
-python scripts/data_preparation/copy_images.py --image_path $RAW_PHOTO_PATH --dataset_path $CAMERA_POSE_PATH
+bash script/data_preparation/preprocess_urbanscene3d.sh
 ```
 
 ### MatrixCity (SmallCity-Aerial)
-Please download the small_city-aerial part from [MatrixCity](https://github.com/city-super/MatrixCity).
+Please download the small_city-aerial scene from [MatrixCity](https://github.com/city-super/MatrixCity) into the `data/matrix_city/aerial` directory.
+
+Next, run the following script to preprocess images.
+
 ```bash
-# preprocessing
-bash scripts/data_preparation/untar_matrixcity_train.sh
-bash scripts/data_preparation/untar_matrixcity_test.sh
-bash scripts/data_preparation/data_proc_mc.sh
+bash script/data_preparation/preprocess_matrixcity.sh
 ```
 
 ### Cache images
 
-downsample 4X
-TODO
+Following previous methods (e.g. MegaNeRF, VastGaussian, CityGaussian), we downsample all images by a factor of 4 (except for MatrixCity, which will be dawnsampled to 1600\*900). This downsampling will be performed during each camera loading process. To enhance efficiency, we will downsample all images in advance.
+```bash
+bash script/data_preparation/downsample.sh
+```
 
 
-### Colmap and data partition
 
-For Colmap, we use the same results as [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). The following results are sourced from [this link](https://github.com/DekuLiuTesla/CityGaussian/blob/main/doc/data_preparation.md).
-
-Besides, we adopt the same divide-and-conquer strategy as CityGaussian to divide the scene into several blocks. 
-- **Google Drive**: https://drive.google.com/file/d/1Uz1pSTIpkagTml2jzkkzJ_rglS_z34p7/view?usp=sharing
-- **Baidu Netdisk**: https://pan.baidu.com/s/1zX34zftxj07dCM1x5bzmbA?pwd=1t6r
-
-Please download and unzip the COLMAP results into the corresponding scene folders under `./data`, as shown below:
 
 
 ### Folder structure

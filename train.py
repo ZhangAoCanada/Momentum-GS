@@ -93,7 +93,6 @@ def sync_model_with_rank0(model):
 
 
 def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wandb=None, logger=None, ply_path=None, testing_freq=1000):
-    eps = 1e-10
     first_iter = 0
     num_blocks = dataset.block_num
     num_gpus = dist.get_world_size()
@@ -588,7 +587,7 @@ if __name__ == "__main__":
         training(lp.extract(args), op.extract(args), pp.extract(args), dataset, args.save_iterations, args.debug_from)
 
     max_memory = torch.cuda.max_memory_allocated()
-    vram_log_entry = f"[rank {rank}] max vram={max_memory / (1024**2)} MB\n"
+    print(f"[rank {rank}] max vram={max_memory / (1024**2)} MB\n")
 
     if rank == 0:
         logger.info("\nTraining complete.")

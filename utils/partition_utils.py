@@ -145,7 +145,6 @@ def get_default_aabb(args, cameras, xyz_org, scale=1.0):
     
     torch.cuda.empty_cache()
     c2ws = np.array([np.linalg.inv(np.asarray((cam.world_view_transform.T).cpu().numpy())) for idx, cam in enumerate(cameras)])
-    # c2ws = np.array([np.linalg.inv(np.asarray((loadCam_woImage(args, idx, cam, scale).world_view_transform.T).cpu().numpy())) for idx, cam in enumerate(cameras)])
     poses = c2ws[:,:3,:] @ np.diag([1, -1, -1, 1])
     center = (focus_point_fn(poses))
     radius = torch.tensor(np.median(np.abs(c2ws[:,:3,3] - center), axis=0), device=xyz_org.device)
