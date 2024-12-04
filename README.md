@@ -2,7 +2,7 @@
 
 [Jixuan Fan*](https://jixuan-fan.github.io/), [Wanhua Li*](https://li-wanhua.github.io/), Yifei Han, [Yansong Tang#](https://andytang15.github.io/)
 
-**[[Project Page](https://github.com/Jixuan-Fan/Momentum-GS_Page)] | [[Paper]()]**
+**[[Project Page](https://jixuan-fan.github.io/Momentum-GS_Page/)] | [[Paper]()]**
 
 3D Gaussian Splatting has demonstrated notable success in large-scale scene reconstruction, but challenges persist due to high training memory consumption and storage overhead.
 Hybrid representations that integrate implicit and explicit features offer a way to mitigate these limitations.
