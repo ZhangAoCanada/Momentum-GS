@@ -2,7 +2,7 @@
 
 [Jixuan Fan*](https://jixuan-fan.github.io/), [Wanhua Li*](https://li-wanhua.github.io/), Yifei Han, [Yansong Tang#](https://andytang15.github.io/)
 
-**[[Project Page](https://jixuan-fan.github.io/Momentum-GS_Page/)] | [[Paper]()]**
+**[[Project Page](https://jixuan-fan.github.io/Momentum-GS_Page/)] | [[Paper](https://arxiv.org/abs/2412.04887)]**
 
 3D Gaussian Splatting has demonstrated notable success in large-scale scene reconstruction, but challenges persist due to high training memory consumption and storage overhead.
 Hybrid representations that integrate implicit and explicit features offer a way to mitigate these limitations.
@@ -155,9 +155,3 @@ This repository is released under the MIT license.
 
 Our code is built upon [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting),  [Scaffold-GS](https://github.com/city-super/Scaffold-GS), and [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). We thank all these authors for their nicely open sourced code and their great contributions to the community.
 
-# 🥰 Citation
-If you find this repository helpful, please consider citing:
-
-```
-# Waiting for Google Scholar update
-```
