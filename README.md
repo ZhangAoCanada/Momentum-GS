@@ -155,3 +155,14 @@ This repository is released under the MIT license.
 
 Our code is built upon [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting),  [Scaffold-GS](https://github.com/city-super/Scaffold-GS), and [CityGaussian](https://github.com/DekuLiuTesla/CityGaussian). We thank all these authors for their nicely open sourced code and their great contributions to the community.
 
+# 🥰 Citation
+If you find this repository helpful, please consider citing:
+
+```
+@article{fan2024momentum,
+  title={Momentum-GS: Momentum Gaussian Self-Distillation for High-Quality Large Scene Reconstruction},
+  author={Fan, Jixuan and Li, Wanhua and Han, Yifei and Tang, Yansong},
+  journal={arXiv preprint arXiv:2412.04887},
+  year={2024}
+}
+```
