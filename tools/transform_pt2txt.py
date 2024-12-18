@@ -66,7 +66,8 @@ if __name__ == "__main__":
                     f.write('# Image list with two lines of data per image:\n')
                     f.write('#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n')
                     f.write('#   POINTS2D[] as (X, Y, POINT3D_ID)\n')
-                    f.write('# Number of images: {}\n'.format(len(os.listdir(sparse_path.parent / 'input'))))
+                    # f.write('# Number of images: {}\n'.format(len(os.listdir(sparse_path.parent / 'input'))))
+                    f.write('# Number of images: {}\n'.format(len(os.listdir(sparse_path.parent / 'images'))))
             
             with open(sparse_path / 'images.txt', 'a') as f:
                 # change from MegaNeRF camera axes (Y right, Z back) to COLMAP (Y down, Z forward)

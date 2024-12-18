@@ -1,6 +1,6 @@
 gpu_num=2
 gpu_list=2,3
-checkpoint_tmp_dir=/data/zhangao/bdaibdai___MatrixCity/small_city/tmp_momentum
+checkpoint_tmp_dir=data/Momentum-GS/tmp/matrixcity/
 block_num=8
 partition_name=block8_ssim0.05
 aabb="-3.5,-4,-10,4.5,2,10"
