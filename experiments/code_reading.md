@@ -1,10 +1,12 @@
 # Code Reading
 
-> Questions with config:
-> - `aabb`
-> - `block_dim`
-> - `consistency_loss_weight`
-> - `adaptive_sigma`
+## Table of Contents
+
+- [Data Partition](#data-partition)
+- [Train partitioned scene](#train-partitioned-scene)
+  - [Scaffold-gs Basic Setup](#scaffold-gs-basic-setup)
+  - [Scaffold-gs Densification](#scaffold-gs-densification)
+  - [Momentum MLP](#momentum-mlp)
 
 ## Data Partition
 
