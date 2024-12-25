@@ -3,10 +3,15 @@
 ## Table of Contents
 
 - [Data Partition](#data-partition)
+    - [Bound the unbounded scenes](#bound-the-unbounded-scenes)
+    - [Select the cam views](#select-the-cam-views)
 - [Train partitioned scene](#train-partitioned-scene)
-  - [Scaffold-gs Basic Setup](#scaffold-gs-basic-setup)
-  - [Scaffold-gs Densification](#scaffold-gs-densification)
-  - [Momentum MLP](#momentum-mlp)
+    - [Scaffold-gs Basic Setup](#scaffold-gs-basic-setup)
+    - [Scaffold-gs Densification](#scaffold-gs-densification)
+    - [Momentum MLP](#momentum-mlp)
+- [Interpolation (Draw from exisiting gs-sr)](#interpolation-draw-from-exisiting-gs-sr)
+- [Diffusion (Draw from nerf-sr or IRSR)](#diffusion-draw-from-nerf-sr-or-irsr)
+
 
 ## Data Partition
 
@@ -170,3 +175,8 @@ Exactly the same as the paper.
 \omega_i = 2 - \exp{\Big( \frac{\delta_p^2 + \lambda \cdot \delta_s^2}{-2\sigma^2} \Big)}
 ```
 where, $\sigma$, a.k.a `adaptive_sigma` is set to $9.0$.
+
+
+## Interpolation (Draw from exisiting gs-sr)
+
+## Diffusion (Draw from nerf-sr or IRSR)
