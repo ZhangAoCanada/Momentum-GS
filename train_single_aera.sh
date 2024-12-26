@@ -7,13 +7,13 @@ function rand(){
 
 gpu_list=3
 gpu_num=1
-addr_random=222
-master_port_random=23958
+addr_random=221
+master_port_random=23959
 data=bdaibdai___MatrixCity/small_city/blockA_fusion_small/train
 custom_test=bdaibdai___MatrixCity/small_city/blockA_fusion_small/test
 images=input_cached
 resolution=-1
-logdir=mc-1gpu-smallaera
+logdir=mc-1gpu-smallaera-densification120kiter
 partition_name=block8_ssim0.05
 block_num=8
 consistency_loss_weight=50

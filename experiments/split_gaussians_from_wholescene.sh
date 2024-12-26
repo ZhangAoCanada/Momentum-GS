@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=3 python experiments/split_gaussians_from_wholescene.py -m outputs/pretrianed/matrixcity --iteration 60000 --skip_train --custom_test data/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/train --resolution 1

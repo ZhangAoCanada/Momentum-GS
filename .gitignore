@@ -14,3 +14,7 @@ diff_rasterization/diff_rast.egg-info
 diff_rasterization/dist
 tensorboard_3d
 *.so
+experiments/tmp
+experiments/tmp_compare
+experiments/tmp_video
+experiments/assets

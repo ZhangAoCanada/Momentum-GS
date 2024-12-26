@@ -428,3 +428,80 @@ def prefilter_voxel(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch
         cov3D_precomp = cov3D_precomp)
 
     return radii_pure > 0
+
+
+def render_anchor(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier=1.0, visible_mask=None, override_color=None):
+
+    # acquire the anchor attributes
+    xyz = pc.get_anchor[visible_mask]
+    feat = pc._anchor_feat[visible_mask]
+    # color = feat[:, 0:1].repeat(1, 3)
+    opacity = pc.opacity_activation(pc._opacity)[visible_mask]
+
+    # Set up rasterization configuration
+    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
+    tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
+
+    raster_settings = GaussianRasterizationSettings(
+        image_height=int(viewpoint_camera.image_height),
+        image_width=int(viewpoint_camera.image_width), 
+        tanfovx=tanfovx,
+        tanfovy=tanfovy,
+        bg=bg_color,
+        scale_modifier=scaling_modifier,
+        viewmatrix=viewpoint_camera.world_view_transform,
+        projmatrix=viewpoint_camera.full_proj_transform,
+        sh_degree=1,
+        campos=viewpoint_camera.camera_center,
+        prefiltered=False,
+        debug=pipe.debug
+    )
+
+    rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+    means3D = pc.get_anchor
+
+    # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
+    # scaling / rotation by the rasterizer.
+    scales = None
+    rotations = None
+    cov3D_precomp = None
+    if pipe.compute_cov3D_python:
+        cov3D_precomp = pc.get_covariance(scaling_modifier)
+        cov3D_precomp = cov3D_precomp[visible_mask]
+    else:
+        scales = pc.get_scaling
+        rotations = pc.get_rotation
+        scales = scales[visible_mask]
+        rotations = rotations[visible_mask]
+
+    num_per_row = 8
+    image_row_list = []
+    image_list = []
+    for i in range(feat.shape[1]):
+        color = feat[:, i:i+1].repeat(1, 3)
+        screenspace_points = torch.zeros_like(xyz, dtype=xyz.dtype, requires_grad=True, device="cuda") + 0
+        try:
+            screenspace_points.retain_grad()
+        except:
+            pass
+
+        rendered_image, radii = rasterizer(
+            means3D = xyz,
+            means2D = screenspace_points,
+            shs = None,
+            colors_precomp = color,
+            opacities = opacity,
+            scales = scales[:, :3],
+            rotations = rotations,
+            cov3D_precomp = cov3D_precomp)
+
+        if len(image_row_list) == num_per_row:
+            image_list.append(torch.cat(image_row_list, dim=2))
+            image_row_list = []
+        image_row_list.append(rendered_image)
+
+    if len(image_row_list) > 0:
+        image_list.append(torch.cat(image_row_list, dim=2))
+    image_list = torch.cat(image_list, dim=1)
+    
+    return {"render": image_list}

@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=2 python experiments/draw_gaussians.py -m outputs/pretrianed/matrixcity --iteration 60000 --skip_train --custom_test data/bdaibdai___MatrixCity/small_city/blockA_fusion_small/test --images input_cached --resolution 1
