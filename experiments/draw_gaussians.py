@@ -24,7 +24,7 @@ os.system('echo $CUDA_VISIBLE_DEVICES')
 from scene import Scene
 import json
 import time
-from gaussian_renderer import render, prefilter_voxel, render_anchor
+from gaussian_renderer import render, prefilter_voxel, render_anchor,render_gsplat , render_anchor_gsplat
 import torchvision
 from tqdm import tqdm
 from utils.general_utils import safe_state
@@ -32,10 +32,13 @@ from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
 
+import math, cv2
 import gsplat
 
 
-def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, background):
+def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, background, render_with_gsplat=True):
+    save_dir = os.path.join(currentdir, "tmp")
+    os.makedirs(save_dir, exist_ok=True)
     max_memory = 0
     name_list = []
     per_view_dict = {}
@@ -45,8 +48,14 @@ def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, back
 
         torch.cuda.synchronize(); t0 = time.time()
         voxel_visible_mask = prefilter_voxel(view, gaussians, pipeline, background)
-        render_pkg_feat = render_anchor(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=0.5)
-        render_pkg = render(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=0.2)
+        if render_with_gsplat:
+            with torch.no_grad():
+                render_pkg_feat = render_anchor_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=1.)
+            render_pkg = render_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1)
+        else:
+            with torch.no_grad():
+                render_pkg_feat = render_anchor(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=1.)
+            render_pkg = render(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1)
         torch.cuda.synchronize(); t1 = time.time()
         
         t_list.append(t1-t0)
@@ -55,12 +64,19 @@ def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, back
 
         rendering_feat = render_pkg_feat["render"]
         rendering = render_pkg["render"]
+        if render_with_gsplat:
+            rendering_feat_depth = render_pkg_feat["depth"]
+            rendering_depth = render_pkg["depth"]
+            rendering_feat_depth = rendering_feat_depth / rendering_feat_depth.max()
+            rendering_depth = rendering_depth / rendering_depth.max()
         gt = view.original_image[0:3, :, :].cuda()
         name_list.append('{0:05d}'.format(idx) + ".png")
-        current_dir = os.path.dirname(os.path.realpath(__file__))
-        torchvision.utils.save_image(rendering_feat, os.path.join(current_dir, "tmp", '{0:05d}'.format(idx) + "_feat.png"))
-        torchvision.utils.save_image(rendering, os.path.join(current_dir, "tmp", '{0:05d}'.format(idx) + "_render.png"))
-        torchvision.utils.save_image(gt, os.path.join(current_dir, "tmp", '{0:05d}'.format(idx) + "_gt.png"))
+        torchvision.utils.save_image(rendering_feat, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat.png"))
+        torchvision.utils.save_image(rendering, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render.png"))
+        if render_with_gsplat:
+            torchvision.utils.save_image(rendering_feat_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_depth.png"))
+            torchvision.utils.save_image(rendering_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_depth.png"))
+        torch.cuda.empty_cache()
 
      
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, custom_test : str):
