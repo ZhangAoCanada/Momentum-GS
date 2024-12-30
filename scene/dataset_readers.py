@@ -31,6 +31,7 @@ except:
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
 import cv2
+os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
 
 class CameraInfo(NamedTuple):
@@ -42,6 +43,8 @@ class CameraInfo(NamedTuple):
     image: np.array
     image_4: np.array
     image_6: np.array
+    depth: np.array
+    normal: np.array
     image_path: str
     image_name: str
     width: int
@@ -80,7 +83,7 @@ def getNerfppNorm(cam_info):
     return {"translate": translate, "radius": radius}
 
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, woimage=False):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, woimage=False, heavyimage=True):
     image_folder_name = os.path.basename(images_folder)
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
@@ -128,8 +131,20 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, woimage=Fal
             image_6 = Image.open(image6_path)
         else:
             image_6 = None
+        
+        if not heavyimage:
+            depth = None
+            normal = None
+        else:
+            depth_path = os.path.join(images_folder.replace(image_folder_name, image_folder_name.replace("input", "depth")), os.path.basename(extr.name).replace("png", "exr"))
+            # normal_path = os.path.join(images_folder.replace(image_folder_name, "normal"), os.path.basename(extr.name).replace("png", "exr"))
+            normal_path = os.path.join(images_folder.replace(image_folder_name, image_folder_name.replace("input", "normal")), os.path.basename(extr.name).replace("png", "exr"))
+            if not os.path.exists(depth_path) or not os.path.exists(normal_path):
+                raise FileNotFoundError
+            depth = cv2.imread(depth_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)[..., 0] / 10000. # cm -> 100m
+            normal = cv2.imread(normal_path, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
 
-        cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image, image_4=image_4, image_6=image_6, image_path=image_path, image_name=image_name, width=width, height=height)
+        cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image, image_4=image_4, image_6=image_6, depth=depth, normal=normal, image_path=image_path, image_name=image_name, width=width, height=height)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -166,7 +181,7 @@ def storePly(path, xyz, rgb):
     ply_data.write(path)
 
 
-def readColmapSceneInfo(path, images, eval, lod, llffhold=8, meganerf_partition=False, train_val_partition=False, train_test_partition=False, partition=None, woimage=False):
+def readColmapSceneInfo(path, images, eval, lod, llffhold=8, meganerf_partition=False, train_val_partition=False, train_test_partition=False, partition=None, woimage=False, heavyimage=True):
 
     if woimage:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images_10x.txt")
@@ -216,7 +231,7 @@ def readColmapSceneInfo(path, images, eval, lod, llffhold=8, meganerf_partition=
                 val_cam_intrinsics = read_intrinsics_text(val_cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir), woimage=woimage)
+    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir), woimage=woimage, heavyimage=heavyimage)
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
     if train_val_partition or train_test_partition:
         val_cam_infos_unsorted = readColmapCameras(cam_extrinsics=val_cam_extrinsics, cam_intrinsics=val_cam_intrinsics, images_folder=os.path.join(val_path, reading_dir))

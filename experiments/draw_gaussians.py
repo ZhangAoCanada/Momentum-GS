@@ -43,16 +43,20 @@ def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, back
     name_list = []
     per_view_dict = {}
     t_list = []
+    depth_threshold = 0.3
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         torch.cuda.reset_peak_memory_stats()
-
         torch.cuda.synchronize(); t0 = time.time()
         voxel_visible_mask = prefilter_voxel(view, gaussians, pipeline, background)
         #######################################################
-        scale_max_values = gaussians.get_scaling.max(dim=-1).values
-        scale_mask = torch.logical_and(scale_max_values > 0.00, scale_max_values <= 0.03)
-        voxel_visible_mask = voxel_visible_mask * scale_mask
+        # scale_max_values = gaussians.get_scaling.max(dim=-1).values
+        # scale_mask = torch.logical_and(scale_max_values > 0.00, scale_max_values <= 0.03)
+        # voxel_visible_mask = voxel_visible_mask * scale_mask
         #######################################################
+        gt = view.original_image[0:3, :, :].cuda()
+        depth = (view.original_depth.repeat(3, 1, 1) / view.original_depth.max()).cuda()
+        normal = view.original_normal.cuda()
+        gt_show = torch.cat([gt, depth, normal], dim=1)
         if render_with_gsplat:
             with torch.no_grad():
                 render_pkg_feat = render_anchor_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=1.)
@@ -74,16 +78,24 @@ def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, back
         if render_with_gsplat:
             rendering_feat_depth = render_pkg_feat["depth"]
             rendering_depth = render_pkg["depth"]
+            gt_depth = view.original_depth.cuda()
+            depth_diff = torch.abs(rendering_depth - gt_depth)
             rendering_feat_depth = rendering_feat_depth / rendering_feat_depth.max()
             rendering_depth = rendering_depth / rendering_depth.max()
-        gt = view.original_image[0:3, :, :].cuda()
+            depth_diff_mask = depth_diff > depth_threshold
+            depth_same = rendering_depth * (1 - depth_diff_mask.float())
+            depth_error = rendering_depth * depth_diff_mask.float()
+            gt_depth = gt_depth / gt_depth.max()
+            rendering_depth_with_diff = torch.cat([gt_depth, rendering_depth, depth_same, depth_error], dim=1)
+            
         name_list.append('{0:05d}'.format(idx) + ".png")
+        torchvision.utils.save_image(gt_show, os.path.join(save_dir, '{0:05d}'.format(idx) + "_gt.png"))
         torchvision.utils.save_image(rendering_feat, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat.png"))
         torchvision.utils.save_image(rendering, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render.png"))
         if render_with_gsplat:
             torchvision.utils.save_image(rendering_feat_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_depth.png"))
             torchvision.utils.save_image(rendering_feat_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_alpha.png"))
-            torchvision.utils.save_image(rendering_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_depth.png"))
+            torchvision.utils.save_image(rendering_depth_with_diff, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_depth.png"))
             torchvision.utils.save_image(rendering_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_alpha.png"))
         torch.cuda.empty_cache()
 

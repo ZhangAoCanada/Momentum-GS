@@ -9,9 +9,9 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from scene.cameras import Camera, LightCam
+from scene.cameras import Camera, LightCam, HeavyCamera
 import numpy as np
-from utils.general_utils import PILtoTorch
+from utils.general_utils import PILtoTorch, NP2Torch
 from utils.graphics_utils import fov2focal
 from tqdm import tqdm
 
@@ -108,7 +108,62 @@ def loadCam_woImage(args, id, cam_info, resolution_scale):
                      width=resolution[0], height=resolution[1])
 
 
-def cameraList_from_camInfos(cam_infos, resolution_scale, args, woimage=False):
+def loadCam_heavy(args, id, cam_info, resolution_scale):
+
+    # # DEBUG
+    # print(f'### In loadCam, FovX: {cam_info.FovX}, FovY: {cam_info.FovY}')
+
+    orig_w, orig_h = cam_info.image.size
+
+    # print(f'DEBUG: orig_w: {orig_w}, orig_h: {orig_h}')
+
+    if args.resolution in [1, 2, 4, 6, 8]:
+        resolution = round(orig_w/(resolution_scale * args.resolution)), round(orig_h/(resolution_scale * args.resolution))
+    else:  # should be a type that converts to float
+        if args.resolution == -1:
+            if orig_w > 1600:
+                global WARNED
+                if not WARNED:
+                    print("[ INFO ] Encountered quite large input images (>1.6K pixels width), rescaling to 1.6K.\n "
+                        "If this is not desired, please explicitly specify '--resolution/-r' as 1")
+                    WARNED = True
+                global_down = orig_w / 1600
+            else:
+                global_down = 1
+        else:
+            global_down = orig_w / args.resolution
+
+        scale = float(global_down) * float(resolution_scale)
+        resolution = (int(orig_w / scale), int(orig_h / scale))
+
+    if args.resolution == 4 and cam_info.image_4 is not None:
+        resized_image_rgb = PILtoTorch(cam_info.image_4, resolution)
+        # print('use precomputed 4x image')
+    elif args.resolution == 6 and cam_info.image_6 is not None:
+        resized_image_rgb = PILtoTorch(cam_info.image_6, resolution)
+    else:
+        resized_image_rgb = PILtoTorch(cam_info.image, resolution)
+    # resized_image_rgb = PILtoTorch(cam_info.image, resolution)
+
+    gt_image = resized_image_rgb[:3, ...]
+    loaded_mask = None
+
+    # print(f'DEBUG: gt_image: {gt_image.shape}')
+     
+    if resized_image_rgb.shape[1] == 4:
+        loaded_mask = resized_image_rgb[3:4, ...]
+    
+    depth = NP2Torch(cam_info.depth, resolution)
+    normal = NP2Torch(cam_info.normal, resolution)
+
+    return HeavyCamera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
+                  FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
+                  image=gt_image, gt_alpha_mask=loaded_mask, 
+                  depth=depth, normal=normal,
+                  image_name=cam_info.image_name, uid=id, data_device=args.data_device)
+
+
+def cameraList_from_camInfos(cam_infos, resolution_scale, args, woimage=False, heavyimage=True):
     camera_list = []
 
     # if args.resolution == 4 and cam_infos[0].image_4 is not None:
@@ -117,6 +172,9 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args, woimage=False):
     if woimage:
         for id, c in enumerate(tqdm(cam_infos)):
             camera_list.append(loadCam_woImage(args, id, c, resolution_scale))
+    if heavyimage:
+        for id, c in enumerate(tqdm(cam_infos)):
+            camera_list.append(loadCam_heavy(args, id, c, resolution_scale))
     else:
         for id, c in enumerate(tqdm(cam_infos)):
             camera_list.append(loadCam(args, id, c, resolution_scale))
