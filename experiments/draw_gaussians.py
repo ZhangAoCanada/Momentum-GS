@@ -16,10 +16,10 @@ import torch
 import numpy as np
 
 import subprocess
-cmd = 'nvidia-smi -q -d Memory |grep -A4 GPU|grep Used'
-result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE).stdout.decode().split('\n')
-os.environ['CUDA_VISIBLE_DEVICES']=str(np.argmin([int(x.split()[2]) for x in result[:-1]]))
-os.system('echo $CUDA_VISIBLE_DEVICES')
+# cmd = 'nvidia-smi -q -d Memory |grep -A4 GPU|grep Used'
+# result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE).stdout.decode().split('\n')
+# os.environ['CUDA_VISIBLE_DEVICES']=str(np.argmin([int(x.split()[2]) for x in result[:-1]]))
+# os.system('echo $CUDA_VISIBLE_DEVICES')
 
 from scene import Scene
 import json
@@ -48,6 +48,11 @@ def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, back
 
         torch.cuda.synchronize(); t0 = time.time()
         voxel_visible_mask = prefilter_voxel(view, gaussians, pipeline, background)
+        #######################################################
+        scale_max_values = gaussians.get_scaling.max(dim=-1).values
+        scale_mask = torch.logical_and(scale_max_values > 0.00, scale_max_values <= 0.03)
+        voxel_visible_mask = voxel_visible_mask * scale_mask
+        #######################################################
         if render_with_gsplat:
             with torch.no_grad():
                 render_pkg_feat = render_anchor_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=1.)
@@ -64,6 +69,8 @@ def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, back
 
         rendering_feat = render_pkg_feat["render"]
         rendering = render_pkg["render"]
+        rendering_feat_alpha = render_pkg_feat["alpha"]
+        rendering_alpha = render_pkg["alpha"]
         if render_with_gsplat:
             rendering_feat_depth = render_pkg_feat["depth"]
             rendering_depth = render_pkg["depth"]
@@ -75,7 +82,9 @@ def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, back
         torchvision.utils.save_image(rendering, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render.png"))
         if render_with_gsplat:
             torchvision.utils.save_image(rendering_feat_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_depth.png"))
+            torchvision.utils.save_image(rendering_feat_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_alpha.png"))
             torchvision.utils.save_image(rendering_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_depth.png"))
+            torchvision.utils.save_image(rendering_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_alpha.png"))
         torch.cuda.empty_cache()
 
      

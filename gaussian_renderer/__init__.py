@@ -550,9 +550,11 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
     )
     rendered_depth = rendered_image.squeeze(0)[..., 3:4].permute(2, 0, 1)
     rendered_image = rendered_image.squeeze(0)[..., :3].permute(2, 0, 1)
+    rendered_alphas = rendered_alphas.squeeze(0).permute(2, 0, 1)
 
     if is_training:
         return {"render": rendered_image,
+                "alpha": rendered_alphas,
                 "depth": rendered_depth,
                 "viewspace_points": meta["means2d"],
                 "visibility_filter" : meta["radii"] > 0,
@@ -563,6 +565,7 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
                 }
     else:
         return {"render": rendered_image,
+                "alpha": rendered_alphas,
                 "depth": rendered_depth,
                 "viewspace_points": meta["means2d"],
                 "visibility_filter" : meta["radii"] > 0,
@@ -574,7 +577,8 @@ def render_anchor_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : 
     # gaussian attributes
     means = pc.get_anchor[visible_mask]
     feat = pc._anchor_feat[visible_mask]
-    opacity = pc.opacity_activation(pc._opacity)[visible_mask]
+    # opacity = pc.opacity_activation(pc._opacity)[visible_mask]
+    opacity = torch.ones_like(pc._opacity[visible_mask], device=pc.get_anchor.device)
     scales = pc.get_scaling[visible_mask]
     quats = pc.get_rotation[visible_mask]
 
@@ -600,18 +604,19 @@ def render_anchor_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : 
         rendered_image, rendered_alphas, meta = gsplat.rendering.rasterization(
             means,
             quats, 
-            scales[:, :3], 
+            scales[:, :3] * scaling_modifier, 
             opacity.squeeze(1),
             colors,
             w2c.transpose(1, 2),
             K,
-            W,
-            H,
+            int(W * resolution_scaling_factor),
+            int(H * resolution_scaling_factor),
             render_mode="RGB+D",
             packed=False
         )
         rendered_depth = rendered_image.squeeze(0)[..., 3:4].permute(2, 0, 1)
         rendered_image = rendered_image.squeeze(0)[..., :3].permute(2, 0, 1)
+        rendered_alphas = rendered_alphas.squeeze(0).permute(2, 0, 1)
         
         if len(image_row_list) == num_per_row:
             image_list.append(torch.cat(image_row_list, dim=2))
@@ -622,4 +627,6 @@ def render_anchor_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : 
         image_list.append(torch.cat(image_row_list, dim=2))
     image_list = torch.cat(image_list, dim=1)
     
-    return {"render": image_list, "depth": rendered_depth}
+    return {"render": image_list, 
+            "alpha": rendered_alphas,
+            "depth": rendered_depth}
