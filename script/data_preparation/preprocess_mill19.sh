@@ -20,8 +20,4 @@ cp -r data/partition/rubble/data_partitions data/mill19/rubble-pixsfm/train/
 
 echo "Copy partition files done."
 
-# Transform pt to txt
-python tools/transform_pt2txt.py --source_path data/mill19/building-pixsfm
-python tools/transform_pt2txt.py --source_path data/mill19/rubble-pixsfm
-
 echo "Preprocess Mill19 done."
