@@ -33,7 +33,7 @@ def mat2quat(M):
     return q
 
 
-option = "train"
+option = "test"
 scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small/{option}"
 pose_dir = scene_dir.replace(f'{option}', 'pose/block_A')
 poses_file = os.path.join(pose_dir, f'transforms_{option}.json')
@@ -62,6 +62,13 @@ def read_pose(
     points3d = read_points3D_binary(point3D_raw_path)
     points_xyz = np.array([point.xyz for point in points3d.values()])
     mask = np.zeros(points_xyz.shape[0], dtype=bool)
+
+    scene_image_path = os.path.join(scene_path, 'input')
+    scene_depth_path = os.path.join(scene_path, 'depth')
+    scene_normal_path = os.path.join(scene_path, 'normal')
+    os.makedirs(scene_image_path, exist_ok=True)
+    os.makedirs(scene_depth_path, exist_ok=True)
+    os.makedirs(scene_normal_path, exist_ok=True)
 
     x_max = -1 # range: -1.2, mean: -4.1
     x_min = -4 # range: -10.0, mean: -4.1
@@ -94,10 +101,26 @@ def read_pose(
         if (camera_center[0] > x_max or camera_center[0] < x_min) or (camera_center[1] > y_max or camera_center[1] < y_min):
             continue
         ### NOTE: copy images
-        image_name = '%04d.png' % i
+        image_abs_path = os.path.abspath(image_path)
+        image_abs_split = image_abs_path.split('/')
+        image_parent_path = '/'.join(image_abs_split[:-2])
+        depth_path = os.path.join(image_parent_path.replace("small_city", "small_city_depth"), f"{image_abs_split[-2]}_depth", image_abs_split[-1].replace("png", "exr"))
+        normal_path = os.path.join(image_parent_path.replace("small_city", "small_city_normal"), f"{image_abs_split[-2]}_normal", image_abs_split[-1].replace("png", "exr"))
         if not os.path.exists(image_path):
             print(image_path)
-        os.system("cp {} {}".format(image_path, os.path.join(scene_path, 'input', image_name)))
+            raise FileNotFoundError
+        if not os.path.exists(depth_path):
+            print(depth_path)
+            raise FileNotFoundError
+        if not os.path.exists(normal_path):
+            print(normal_path)
+            raise FileNotFoundError
+        image_name = '%04d.png' % i
+        depth_name = '%04d.exr' % i
+        normal_name = '%04d.exr' % i
+        os.system("cp {} {}".format(image_path, os.path.join(scene_image_path, image_name)))
+        os.system("cp {} {}".format(depth_path, os.path.join(scene_depth_path, depth_name)))
+        os.system("cp {} {}".format(normal_path, os.path.join(scene_normal_path, normal_name)))
         ## NOTE: remove the camera pose if it is othogonal to the z-axis ##
         # rotation_matrix = c2w[:3, :3]
         # if np.abs(rotation_matrix[0, 2]) < 1e-3 and np.abs(rotation_matrix[1, 2]) < 1e-3:

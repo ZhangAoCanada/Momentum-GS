@@ -60,6 +60,12 @@ def read_pose(
     camera_model = metadata["camera_model"]
 
     count = 0
+    scene_image_path = os.path.join(scene_path, 'input')
+    scene_depth_path = os.path.join(scene_path, 'depth')
+    scene_normal_path = os.path.join(scene_path, 'normal')
+    os.makedirs(scene_image_path, exist_ok=True)
+    os.makedirs(scene_depth_path, exist_ok=True)
+    os.makedirs(scene_normal_path, exist_ok=True)
     for i in tqdm(range(num_frames)):
         frame = metadata["frames"][i]
         fx, fy = frame["fl_x"], frame["fl_y"]
@@ -78,10 +84,26 @@ def read_pose(
         image_path = frame["file_path"]
 
         ############# NOTE: copy image to colmap input folder ############
+        image_abs_path = os.path.abspath(image_path)
+        image_abs_split = image_abs_path.split('/')
+        image_parent_path = '/'.join(image_abs_split[:-2])
+        depth_path = os.path.join(image_parent_path.replace("small_city", "small_city_depth"), f"{image_abs_split[-2]}_depth", image_abs_split[-1].replace("png", "exr"))
+        normal_path = os.path.join(image_parent_path.replace("small_city", "small_city_normal"), f"{image_abs_split[-2]}_normal", image_abs_split[-1].replace("png", "exr"))
         if not os.path.exists(image_path):
             print(image_path)
+            raise FileNotFoundError
+        if not os.path.exists(depth_path):
+            print(depth_path)
+            raise FileNotFoundError
+        if not os.path.exists(normal_path):
+            print(normal_path)
+            raise FileNotFoundError
         image_name = '%04d.png' % i
-        os.system("cp {} {}".format(image_path, os.path.join(scene_path, 'input', image_name)))
+        depth_name = '%04d.exr' % i
+        normal_name = '%04d.exr' % i
+        os.system("cp {} {}".format(image_path, os.path.join(scene_image_path, image_name)))
+        os.system("cp {} {}".format(depth_path, os.path.join(scene_depth_path, depth_name)))
+        os.system("cp {} {}".format(normal_path, os.path.join(scene_normal_path, normal_name)))
         ##################################################################
         
         image_id = i
@@ -119,7 +141,7 @@ os.makedirs(colmap_dir, exist_ok=True)
 
 print(f'num images: {len(images)}')
 
-# print(f'colmap data written to:{colmap_dir}')
-# write_cameras_binary(cameras, os.path.join(colmap_dir, "cameras.bin"))
-# write_images_binary(images, os.path.join(colmap_dir, "images.bin"))
-# write_points3D_binary({}, os.path.join(colmap_dir, "points3D.bin"))
+print(f'colmap data written to:{colmap_dir}')
+write_cameras_binary(cameras, os.path.join(colmap_dir, "cameras.bin"))
+write_images_binary(images, os.path.join(colmap_dir, "images.bin"))
+write_points3D_binary({}, os.path.join(colmap_dir, "points3D.bin"))
