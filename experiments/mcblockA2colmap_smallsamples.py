@@ -34,7 +34,7 @@ def mat2quat(M):
 
 
 option = "test"
-scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small/{option}"
+scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/{option}"
 pose_dir = scene_dir.replace(f'{option}', 'pose/block_A')
 poses_file = os.path.join(pose_dir, f'transforms_{option}.json')
 point3D_raw_path = "/data/zhangao/bdaibdai___MatrixCity/small_city/aerial/train/block_all/sparse/0/points3D.bin"
@@ -115,6 +115,8 @@ def read_pose(
         if not os.path.exists(normal_path):
             print(normal_path)
             raise FileNotFoundError
+        # if "aerial" not in image_path:
+        #     continue
         image_name = '%04d.png' % i
         depth_name = '%04d.exr' % i
         normal_name = '%04d.exr' % i

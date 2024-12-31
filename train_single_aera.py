@@ -25,7 +25,7 @@ from PIL import Image
 import torchvision.transforms.functional as tf
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import prefilter_voxel, render, render_with_consistency_loss
+from gaussian_renderer import prefilter_voxel, render, render_with_consistency_loss, prefilter_voxel_gsplat, render_gsplat, render_with_consistency_loss_gsplat
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
@@ -92,7 +92,7 @@ def sync_model_with_rank0(model):
             dist.broadcast(param.data, 0)
 
 
-def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wandb=None, logger=None, ply_path=None, testing_freq=1000):
+def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wandb=None, logger=None, ply_path=None, testing_freq=1000, render_with_gsplat=True):
     first_iter = 0
     # num_blocks = dataset.block_num
     num_blocks = 1
@@ -119,7 +119,7 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
     gaussians = GaussianModel(dataset.feat_dim, dataset.n_offsets, dataset.voxel_size, dataset.update_depth, dataset.update_init_factor, dataset.update_hierachy_factor, dataset.use_feat_bank, dataset.appearance_dim, dataset.ratio, dataset.add_opacity_dist, dataset.add_cov_dist, dataset.add_color_dist)
     
     # scene = Scene(dataset, gaussians, ply_path=ply_path, shuffle=False, distributed=True, block_id=block_id)
-    scene = Scene(dataset, gaussians, ply_path=ply_path, shuffle=False, block_id=-1)
+    scene = Scene(dataset, gaussians, ply_path=ply_path, shuffle=False, block_id=-1, load_test_scenes=True)
 
     # if not the first block, sync mlp data with previous block
     if multi_block_per_gpu and rank == 0 and block_id != rank * num_blocks_per_gpu:
@@ -235,22 +235,41 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                 # Render
                 if (cur_iter - 1) == debug_from:
                     pipe.debug = True
-                voxel_visible_mask = prefilter_voxel(viewpoint_cam, gaussians, pipe, background)
+                if render_with_gsplat:
+                    voxel_visible_mask = prefilter_voxel_gsplat(viewpoint_cam, gaussians, pipe, background)
+                else:
+                    voxel_visible_mask = prefilter_voxel(viewpoint_cam, gaussians, pipe, background)
 
                 retain_grad = (cur_iter < opt.update_until and cur_iter >= 0)
                 if gaussians.freeze_all_mlp:
-                    render_pkg = render(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
+                    if render_with_gsplat:
+                        render_pkg = render_gsplat(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
+                    else:
+                        render_pkg = render(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
                 else:
-                    render_pkg = render_with_consistency_loss(viewpoint_cam, gaussians, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
+                    if render_with_gsplat:
+                        render_pkg = render_with_consistency_loss_gsplat(viewpoint_cam, gaussians, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
+                    else:
+                        render_pkg = render_with_consistency_loss(viewpoint_cam, gaussians, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
                 
                 image, viewspace_point_tensor, visibility_filter, offset_selection_mask, radii, scaling, opacity = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["selection_mask"], render_pkg["radii"], render_pkg["scaling"], render_pkg["neural_opacity"]
 
+                if render_with_gsplat:
+                    alpha = render_pkg["alpha"]
+                    depth = render_pkg["depth"]
+
                 gt_image = viewpoint_cam.original_image.cuda()
+                gt_depth = viewpoint_cam.original_depth.cuda()
+                gt_normal = viewpoint_cam.original_normal.cuda()
                 
                 Ll1 = l1_loss(image, gt_image)
                 ssim_loss = (1.0 - ssim(image, gt_image))
                 scaling_reg = scaling.prod(dim=1).mean()
                 loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * ssim_loss + 0.01 * scaling_reg
+            
+                if render_with_gsplat:
+                    Ll1_depth = 0.5 * l1_loss(depth, gt_depth)
+                    loss += Ll1_depth
 
                 if not gaussians.freeze_all_mlp:
                     # consistency loss
@@ -362,11 +381,11 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                     # densification
                     if cur_iter < opt.update_until and cur_iter > opt.start_stat:
                         # add statis
-                        gaussians.training_statis(viewspace_point_tensor, opacity, visibility_filter, offset_selection_mask, voxel_visible_mask)
+                        gaussians.training_statis(viewspace_point_tensor, opacity, visibility_filter, offset_selection_mask, voxel_visible_mask, render_with_gsplat)
                         
                         # densification
                         if cur_iter > opt.update_from and cur_iter % opt.update_interval == 0:
-                            gaussians.adjust_anchor(check_interval=opt.update_interval, success_threshold=opt.success_threshold, grad_threshold=opt.densify_grad_threshold, min_opacity=opt.min_opacity)
+                            gaussians.adjust_anchor(check_interval=opt.update_interval, success_threshold=opt.success_threshold, grad_threshold=opt.densify_grad_threshold, min_opacity=opt.min_opacity, render_with_gsplat=render_with_gsplat)
                     elif cur_iter == opt.update_until:
                         print("### Stop densification.")
                         gaussians.opacity_accum = None

@@ -25,7 +25,7 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0], ply_path=None, distributed=False, block_id=-1, woimage=False, heavyimage=True):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0], ply_path=None, distributed=False, block_id=-1, woimage=False, heavyimage=True, load_test_scenes=False):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -62,6 +62,16 @@ class Scene:
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, ply_path=ply_path)
         else:
             assert False, "Could not recognize scene type!"
+
+        if load_test_scenes:
+            if os.path.exists(os.path.join(args.custom_test, "sparse")):
+                testscene_info = sceneLoadTypeCallbacks["Colmap"](args.custom_test, args.images, args.eval, args.lod, meganerf_partition=args.meganerf_partition, train_val_partition=args.train_val_partition, train_test_partition=args.train_test_partition, partition=partition, woimage=woimage, heavyimage=heavyimage)
+            elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
+                print("Found transforms_train.json file, assuming Blender data set!")
+                testscene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, ply_path=ply_path)
+            else:
+                assert False, "Could not recognize scene type!"
+            scene_info.test_cameras.extend(testscene_info.train_cameras)
 
         self.gaussians.set_appearance(len(scene_info.train_cameras))
         
