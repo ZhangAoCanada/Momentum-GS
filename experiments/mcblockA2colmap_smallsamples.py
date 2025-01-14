@@ -33,8 +33,9 @@ def mat2quat(M):
     return q
 
 
-option = "test"
-scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/{option}"
+option = "train"
+# scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/{option}"
+scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial+somestreet/{option}"
 pose_dir = scene_dir.replace(f'{option}', 'pose/block_A')
 poses_file = os.path.join(pose_dir, f'transforms_{option}.json')
 point3D_raw_path = "/data/zhangao/bdaibdai___MatrixCity/small_city/aerial/train/block_all/sparse/0/points3D.bin"
@@ -49,6 +50,9 @@ TO_MANHATTAN_WORLD = torch.FloatTensor([
     [0, -1, 0]
 ])
 
+
+select_list = ['small_city_road_down/0108.png', 'small_city_road_down/0129.png', 'small_city_road_down/0425.png', 'small_city_road_down/1198.png', 'small_city_road_down/3820.png', 'small_city_road_down/3662.png', 'small_city_road_down/3686.png', 'small_city_road_down/3485.png', 'small_city_road_down/3497.png', 'small_city_road_down/3430.png', 'small_city_road_down/2770.png', 'small_city_road_down/2750.png', 'small_city_road_down/2761.png', 'small_city_road_down/2676.png', 'small_city_road_down/2700.png', 'small_city_road_down/2629.png', 'small_city_road_down/2667.png', 'small_city_road_down/1727.png', 'small_city_road_down/1489.png', 'small_city_road_down/1509.png', 'small_city_road_down/1532.png', 'small_city_road_down/1552.png', 'small_city_road_down/1330.png', 'small_city_road_down/1353.png', 'small_city_road_down/1376.png', 'small_city_road_down/1150.png', 'small_city_road_down/1174.png', 'small_city_road_down/1198.png']
+image_select_list = [item.split('/')[-1] for item in select_list]
 
 
 def read_pose(
@@ -115,8 +119,10 @@ def read_pose(
         if not os.path.exists(normal_path):
             print(normal_path)
             raise FileNotFoundError
-        # if "aerial" not in image_path:
-        #     continue
+        if "aerial" not in image_path and "/".join(image_path.split('/')[-2:]) not in select_list:
+            print("/".join(image_path.split('/')[-2:]))
+            continue
+
         image_name = '%04d.png' % i
         depth_name = '%04d.exr' % i
         normal_name = '%04d.exr' % i

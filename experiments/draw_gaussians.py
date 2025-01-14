@@ -22,6 +22,7 @@ import subprocess
 # os.system('echo $CUDA_VISIBLE_DEVICES')
 
 from scene import Scene
+from scene.interpolation import GaussianInterpolation
 import json
 import time
 from gaussian_renderer import render, prefilter_voxel, render_anchor,render_gsplat , render_anchor_gsplat
@@ -32,77 +33,123 @@ from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
 
+from scene.interpolation_point import PointInterpolation
+
 import math, cv2
 import gsplat
 
+from scene.freq_modifier import FrequencyModifier
+import shutil
 
-def show_gaussians(model_path, name, iteration, views, gaussians, pipeline, background, render_with_gsplat=True, render_anchor=False):
+
+def grid_upsample(image_tensor, scale):
+    upsampled_image = torch.nn.functional.interpolate(image_tensor.unsqueeze(0), scale_factor=scale, mode='nearest-exact')
+    return upsampled_image.squeeze(0)
+
+
+def show_gaussians(args, scene, freq, name, iteration, views, gaussians, pipeline, background, render_with_gsplat=True, render_with_anchor=False):
     save_dir = os.path.join(currentdir, "tmp")
+    if os.path.exists(save_dir):
+        shutil.rmtree(save_dir)
     os.makedirs(save_dir, exist_ok=True)
     max_memory = 0
     name_list = []
     per_view_dict = {}
     t_list = []
-    depth_threshold = 0.3
+    depth_threshold = 0.1
+    scaling_factor=None
+    resolution_scaling_factor=4
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
+        #######################################################
+        view = views[-1]
+        #######################################################
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize(); t0 = time.time()
         voxel_visible_mask = prefilter_voxel(view, gaussians, pipeline, background)
         #######################################################
-        # scale_max_values = gaussians.get_scaling.max(dim=-1).values
-        # scale_mask = torch.logical_and(scale_max_values > 0.00, scale_max_values <= 0.03)
-        # voxel_visible_mask = voxel_visible_mask * scale_mask
+        scale_freqs = 1.
+        offset_freqs = 2.
+        freq_scale_raw = freq.anchor_freq(gaussians, mode="anchor_scale")
+        freq_offset_raw = freq.anchor_freq(gaussians, mode="anchor_offset")
+        freq.plot_freq(freq_scale_raw, os.path.join(save_dir, '{0:05d}'.format(idx) + "_freq_scale_raw.png"))
+        freq.plot_freq(freq_offset_raw, os.path.join(save_dir, '{0:05d}'.format(idx) + "_freq_offset_raw.png"))
+        frequency_scale = freq.anchor_freq_smooth(gaussians, freq_scale=scale_freqs, mode="anchor_scale")
+        frequency_offset = freq.anchor_freq_smooth(gaussians, freq_scale=offset_freqs, mode="anchor_offset")
+        frequency_scale_fitlered = freq.filter_smooth(frequency_scale, freq_scale=scale_freqs)
+        frequency_offset_fitlered = freq.filter_smooth(frequency_offset, freq_scale=offset_freqs)
+        freq.plot_freq_compare(frequency_scale, frequency_scale_fitlered, os.path.join(save_dir, '{0:05d}'.format(idx) + "_freq_scale.png"))
+        freq.plot_freq_compare(frequency_offset, frequency_offset_fitlered, os.path.join(save_dir, '{0:05d}'.format(idx) + "_freq_offset.png"))
+        freq_filter_mask = torch.logical_and(frequency_scale_fitlered["freq_mask"], frequency_offset_fitlered["freq_mask"])
+        voxel_visible_mask = voxel_visible_mask * freq_filter_mask
         #######################################################
         gt = view.original_image[0:3, :, :].cuda()
-        depth = (view.original_depth.repeat(3, 1, 1) / view.original_depth.max()).cuda()
+        # upsample the ground truth with grid_sample
+        depth_raw = view.original_depth.cuda()
         normal = view.original_normal.cuda()
-        gt_show = torch.cat([gt, depth, normal], dim=1)
+        gt = grid_upsample(gt, resolution_scaling_factor)
+        depth_raw = grid_upsample(depth_raw, resolution_scaling_factor)
+        normal = grid_upsample(normal, resolution_scaling_factor)
+        # depth = (depth_raw.repeat(3, 1, 1) - depth_raw.min()) / (depth_raw.max() - depth_raw.min())
+        # gt_show = torch.cat([gt, depth, normal], dim=1)
         if render_with_gsplat:
-            if render_anchor:
+            if render_with_anchor:
                 with torch.no_grad():
-                    render_pkg_feat = render_anchor_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=1.)
-            render_pkg = render_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1)
+                    render_pkg_feat = render_anchor_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=resolution_scaling_factor, scaledown_ratio=scaling_factor)
+            render_pkg = render_gsplat(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=resolution_scaling_factor, scaledown_ratio=scaling_factor)
         else:
-            if render_anchor:
+            if render_with_anchor:
                 with torch.no_grad():
-                    render_pkg_feat = render_anchor(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=1.)
-            render_pkg = render(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1)
+                    render_pkg_feat = render_anchor(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=resolution_scaling_factor, scaledown_ratio=scaling_factor)
+            render_pkg = render(view, gaussians, pipeline, background, visible_mask=voxel_visible_mask, scaling_modifier=1, resolution_scaling_factor=resolution_scaling_factor, scaledown_ratio=scaling_factor)
         torch.cuda.synchronize(); t1 = time.time()
         
         t_list.append(t1-t0)
         forward_max_memory_allocated = torch.cuda.max_memory_allocated() / (1024.0 ** 2)
         max_memory = max(max_memory, forward_max_memory_allocated)
 
-        if render_anchor:
+        if render_with_anchor:
             rendering_feat = render_pkg_feat["render"]
             rendering_feat_alpha = render_pkg_feat["alpha"]
         rendering = render_pkg["render"]
         rendering_alpha = render_pkg["alpha"]
+        gt_alpha = rendering_alpha * gt
+        rendering_diff = torch.abs(rendering - gt_alpha).mean(dim=0, keepdim=True).repeat(3, 1, 1)
+        rendering_diff = torch.where(rendering_diff > 0.1, 1., 0.)
+        rendering = torch.cat([gt, gt_alpha, rendering, rendering_diff], dim=1)
         if render_with_gsplat:
-            if render_anchor:
-                rendering_feat_depth = render_pkg_feat["depth"]
-                rendering_feat_depth = rendering_feat_depth / rendering_feat_depth.max()
+            if render_with_anchor:
+                rendering_feat_depth_raw = render_pkg_feat["depth"]
+                rendering_feat_depth = (rendering_feat_depth_raw - rendering_feat_depth_raw.min()) / (rendering_feat_depth_raw.max() - rendering_feat_depth_raw.min())
+                gt_depth_alpha = rendering_feat_alpha * depth_raw
+                gt_depth_alpha = (gt_depth_alpha - depth_raw.min()) / (depth_raw.max() - depth_raw.min())
+                rendering_feat_depth = torch.cat([gt_depth_alpha, rendering_feat_depth], dim=1)
             rendering_depth = render_pkg["depth"]
-            gt_depth = view.original_depth.cuda()
-            depth_diff = torch.abs(rendering_depth - gt_depth)
+            gt_depth = depth_raw
+            gt_alpha = gt_depth * rendering_alpha
+            depth_diff = torch.abs(rendering_depth - gt_depth) / gt_depth.max()
+            depth_diff = torch.clamp(depth_diff, 0., 1.)
+            depth_diff = torch.where(depth_diff > depth_threshold, 1., 0.)
             rendering_depth = rendering_depth / rendering_depth.max()
-            depth_diff_mask = depth_diff > depth_threshold
-            depth_same = rendering_depth * (1 - depth_diff_mask.float())
-            depth_error = rendering_depth * depth_diff_mask.float()
             gt_depth = gt_depth / gt_depth.max()
-            rendering_depth_with_diff = torch.cat([gt_depth, rendering_depth, depth_same, depth_error], dim=1)
+            gt_alpha = gt_alpha / gt_alpha.max()
+            rendering_depth_with_diff = torch.cat([gt_depth, gt_alpha, rendering_depth, depth_diff], dim=1)
+
+        ################################################################
+        interpolation = PointInterpolation(args, scene, pipeline, gaussians, tb_writer=None, depth_threshold=0.1, color_threshold=0.1, voxel_stride_portion=0.8, interpolate_interval=1, train_iterations=200)
+        interpolation()
+        ################################################################
             
         name_list.append('{0:05d}'.format(idx) + ".png")
-        torchvision.utils.save_image(gt_show, os.path.join(save_dir, '{0:05d}'.format(idx) + "_gt.png"))
-        if render_anchor:
+        # torchvision.utils.save_image(gt_show, os.path.join(save_dir, '{0:05d}'.format(idx) + "_gt.png"))
+        if render_with_anchor:
             torchvision.utils.save_image(rendering_feat, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat.png"))
         torchvision.utils.save_image(rendering, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render.png"))
         if render_with_gsplat:
-            if render_anchor:
+            if render_with_anchor:
                 torchvision.utils.save_image(rendering_feat_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_depth.png"))
-                torchvision.utils.save_image(rendering_feat_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_alpha.png"))
+                # torchvision.utils.save_image(rendering_feat_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_alpha.png"))
             torchvision.utils.save_image(rendering_depth_with_diff, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_depth.png"))
-            torchvision.utils.save_image(rendering_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_alpha.png"))
+            # torchvision.utils.save_image(rendering_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_alpha.png"))
         torch.cuda.empty_cache()
 
      
@@ -122,7 +169,9 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
         if not os.path.exists(dataset.model_path):
             os.makedirs(dataset.model_path)
         
-        show_gaussians(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background)
+        freq = FrequencyModifier(dataset, scene, pipeline, None, None)
+        
+        show_gaussians(dataset, scene, freq, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background)
 
 
 if __name__ == "__main__":

@@ -191,3 +191,47 @@ Then, we compute the probability of the union area as,
 ```
 
 Pre-defined threshold $\tau$ is used to determine the interpolation area. If $P_{\text{intersection}} > \tau$, we interpolate the feature field with the union probability $P_{\text{union}}$.
+
+
+### High Pass Fitler for frequency increase
+
+As `self._scaling` is composed of `[:, :3]` and `[:, 3:]`, controlling the offset scales and the gaussian scales. Use high pass filter on either of them, or both, can remove the uncertain large kernels (low frequency) and add up the small kernels (high frequency).
+
+Visual fitlering results are shown below.
+<p align="center">
+    <img src="../assets/00000_freq_offset.png" width="400" height="240"> <img src="../assets/00000_freq_scale.png" width="400" height="240">
+</p>
+Left is the offset scale, and right is the gaussian scale. 
+
+After fitlering, high frequency points are added with gt depth map. The process can be viewed as below.
+<p align="center">
+    <img src="../assets/interpolate.png" width="600" height="240"> 
+</p>
+
+### Adding a small portion of street
+
+```python
+# To be selected
+[1171, 1192]
+[1148, 1502]
+[2012, 2025, 2049, 2072]
+[3840, 3857]
+[3780, 3799, 3813]
+[3714, 3731]
+[3641, 3665, 3682]
+[3564]
+[3516, 3528]
+[3461]
+[3395, 3406]
+[3351]
+[3104]
+[3091, 3102]
+[3024, 3048]
+[2984, 3022]
+[2505, 2529, 2553]
+[2331, 2351, 2374, 2394]
+[2188, 2211, 2234]
+[2024, 2048, 2072]
+```
+
+### Think how to make the most of Features (discrete features to continuous field)

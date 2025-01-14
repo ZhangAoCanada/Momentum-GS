@@ -25,7 +25,7 @@ from utils.distributed_utils import get_rank
 from scene.embedding import Embedding
 
 
-class GaussianModel:
+class GaussianInterpolationModel:
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -98,6 +98,21 @@ class GaussianModel:
         self.spatial_lr_scale = 0
         self.setup_functions()
 
+        #####################################################################
+        ################# NOTE: fix the trained gaussians ###################
+        #####################################################################
+        self._anchor_fix = torch.empty(0, device="cuda")
+        self._offset_fix = torch.empty(0, device="cuda")
+        self._anchor_feat_fix = torch.empty(0, device="cuda")
+        self._scaling_fix = torch.empty(0, device="cuda")
+        self._rotation_fix = torch.empty(0, device="cuda")
+        self._opacity_fix = torch.empty(0, device="cuda")
+        self.max_radii2D_fix = torch.empty(0, device="cuda")
+        self.fix_size = 0
+        #####################################################################
+        #####################################################################
+        #####################################################################
+
         if self.use_feat_bank:
             self.mlp_feature_bank = nn.Sequential(
                 nn.Linear(3+1, feat_dim),
@@ -130,7 +145,61 @@ class GaussianModel:
             nn.Sigmoid()
         ).cuda()
 
+    
+    #####################################################################
+    #####################################################################
+    #####################################################################
+    def fix_trained(self, trained_gaussians, voxel_visible_mask, device="cuda"):
+        # fix trained gaussian attributes
+        self._anchor_fix = trained_gaussians._anchor[voxel_visible_mask].data.detach().clone().to(device).requires_grad_(True)
+        self._offset_fix = trained_gaussians._offset[voxel_visible_mask].data.detach().clone().to(device).requires_grad_(True)
+        self._anchor_feat_fix = trained_gaussians._anchor_feat[voxel_visible_mask].data.detach().clone().to(device).requires_grad_(True)
+        self._scaling_fix = trained_gaussians._scaling[voxel_visible_mask].data.detach().clone().to(device).requires_grad_(True)
+        self._rotation_fix = trained_gaussians._rotation[voxel_visible_mask].data.detach().clone().to(device).requires_grad_(True)
+        self._opacity_fix = trained_gaussians._opacity[voxel_visible_mask].data.detach().clone().to(device).requires_grad_(True)
+        self.max_radii2D_fix = trained_gaussians.max_radii2D.data.detach().clone().to(device).requires_grad_(True)
+        self.fix_size = self._anchor_fix.shape[0]
+        # fix trained gaussian mlp
+        self.replace_model(self.mlp_opacity, trained_gaussians.mlp_opacity)
+        self.replace_model(self.mlp_cov, trained_gaussians.mlp_cov)
+        self.replace_model(self.mlp_color, trained_gaussians.mlp_color)
+        if self.appearance_dim > 0:
+            self.replace_model(self.embedding_appearance, trained_gaussians.embedding_appearance)
+        if self.use_feat_bank:
+            self.replace_model(self.mlp_feature_bank, trained_gaussians.mlp_feature_bank)
+        # freeze all mlp
+        self.freeze_mlp()
+
+
+    def replace_model(self, model_a, model_b):
+        # replace model_a with model_b
+        with torch.no_grad():
+            for param_a, param_b in zip(model_a.parameters(), model_b.parameters()):
+                param_a.data = param_b.data
+
+
+    def clean_attributes(self, ):
+        del self._anchor, self._offset, self._anchor_feat, self._scaling, self._rotation, self._opacity, self.max_radii2D
+        self._anchor = torch.empty(0)
+        self._offset = torch.empty(0)
+        self._anchor_feat = torch.empty(0)
+        self._scaling = torch.empty(0)
+        self._rotation = torch.empty(0)
+        self._opacity = torch.empty(0)
+        self.max_radii2D = torch.empty(0)
+        del self._anchor_fix, self._offset_fix, self._anchor_feat_fix, self._scaling_fix, self._rotation_fix, self._opacity_fix, self.max_radii2D_fix
+        self._anchor_fix = torch.empty(0)
+        self._offset_fix = torch.empty(0)
+        self._anchor_feat_fix = torch.empty(0)
+        self._scaling_fix = torch.empty(0)
+        self._rotation_fix = torch.empty(0)
+        self._opacity_fix = torch.empty(0)
+        self.max_radii2D_fix = torch.empty(0)
+    #####################################################################
+    #####################################################################
+    #####################################################################
         
+
     def eval(self):
         self.mlp_opacity.eval()
         self.mlp_cov.eval()
@@ -199,7 +268,7 @@ class GaussianModel:
 
     @property
     def get_scaling(self):
-        return 1.0*self.scaling_activation(self._scaling)
+        return 1.0*self.scaling_activation(torch.cat([self._scaling_fix, self._scaling], dim=0))
     
     @property
     def get_featurebank_mlp(self):
@@ -219,11 +288,19 @@ class GaussianModel:
     
     @property
     def get_rotation(self):
-        return self.rotation_activation(self._rotation)
+        return self.rotation_activation(torch.cat([self._rotation_fix, self._rotation], dim=0))
     
     @property
     def get_anchor(self):
-        return self._anchor
+        return torch.cat([self._anchor_fix, self._anchor], dim=0)
+    
+    @property
+    def get_anchor_feat(self):
+        return torch.cat([self._anchor_feat_fix, self._anchor_feat], dim=0)
+    
+    @property
+    def get_offset(self):
+        return torch.cat([self._offset_fix, self._offset], dim=0)
     
     @property
     def set_anchor(self, new_anchor):
@@ -234,7 +311,7 @@ class GaussianModel:
     
     @property
     def get_opacity(self):
-        return self.opacity_activation(self._opacity)
+        return self.opacity_activation(torch.cat([self._opacity_fix, self._opacity], dim=0))
     
 
     def get_apperance_embedding(self, idx):
@@ -242,7 +319,9 @@ class GaussianModel:
     
 
     def get_covariance(self, scaling_modifier = 1):
-        return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
+        scaling = self.get_scaling
+        rotation = torch.cat([self._rotation_fix, self._rotation], dim=0)
+        return self.covariance_activation(scaling, scaling_modifier, rotation)
     
 
     def voxelize_sample(self, data=None, voxel_size=0.01):
@@ -290,6 +369,39 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(False))
         self._opacity = nn.Parameter(opacities.requires_grad_(False))
         self.max_radii2D = torch.zeros((self.get_anchor.shape[0]), device="cuda")
+
+
+    #####################################################################
+    #####################################################################
+    #####################################################################
+    def create_from_points(self, points : torch.Tensor, spatial_lr_scale : float, voxel_stride: int):
+        self.spatial_lr_scale = spatial_lr_scale
+        voxel_points = self.voxelize_sample(points.detach().cpu().numpy(), voxel_size=self.voxel_size * voxel_stride)
+
+        # print(f'[INFO] Interpolating voxel_points: {voxel_points.shape[0]}, with voxel_stride: {voxel_stride} for existing points: {self._anchor_fix.shape[0]}')
+
+        fused_point_cloud = torch.tensor(np.asarray(voxel_points)).float().cuda()
+        offsets = torch.zeros((fused_point_cloud.shape[0], self.n_offsets, 3)).float().cuda()
+        anchors_feat = torch.zeros((fused_point_cloud.shape[0], self.feat_dim)).float().cuda()
+        
+        dist2 = torch.clamp_min(distCUDA2(fused_point_cloud).float().cuda(), 0.0000001)
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 6)
+        
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1
+
+        opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+
+        self._anchor = nn.Parameter(fused_point_cloud.requires_grad_(True))
+        self._offset = nn.Parameter(offsets.requires_grad_(True))
+        self._anchor_feat = nn.Parameter(anchors_feat.requires_grad_(True))
+        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._rotation = nn.Parameter(rots.requires_grad_(False))
+        self._opacity = nn.Parameter(opacities.requires_grad_(False))
+        self.max_radii2D = torch.zeros((self.get_anchor.shape[0]), device="cuda")
+    #####################################################################
+    #####################################################################
+    #####################################################################
 
 
     def training_setup(self, training_args):
@@ -530,7 +642,7 @@ class GaussianModel:
 
 
     # statis grad information to guide liftting. 
-    def training_statis(self, viewspace_point_tensor, opacity, update_filter, offset_selection_mask, anchor_visible_mask, render_with_gsplat=False, absgrad=False):
+    def training_statis(self, viewspace_point_tensor, opacity, update_filter, offset_selection_mask, anchor_visible_mask, render_with_gsplat=False):
         # update opacity stats
         temp_opacity = opacity.clone().view(-1).detach()
         temp_opacity[temp_opacity<0] = 0
@@ -549,13 +661,7 @@ class GaussianModel:
         combined_mask[temp_mask] = update_filter
         
         if render_with_gsplat:
-            if absgrad:
-                grads = viewspace_point_tensor['means2d'].absgrad.clone()
-            else:
-                grads = viewspace_point_tensor['means2d'].grad.clone()
-            grads[..., 0] *= viewspace_point_tensor["width"] / 2.0 * viewspace_point_tensor["n_cameras"]
-            grads[..., 1] *= viewspace_point_tensor["height"] / 2.0 * viewspace_point_tensor["n_cameras"]
-            grad_norm = torch.norm(grads, dim=-1, keepdim=True)
+            grad_norm = torch.norm(viewspace_point_tensor.absgrad[:,:2], dim=-1, keepdim=True)
         else:
             grad_norm = torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.offset_gradient_accum[combined_mask] += grad_norm
@@ -716,10 +822,11 @@ class GaussianModel:
                 self._anchor_feat = optimizable_tensors["anchor_feat"]
                 self._offset = optimizable_tensors["offset"]
                 self._opacity = optimizable_tensors["opacity"]
-
+                
 
     def adjust_anchor(self, check_interval=100, success_threshold=0.8, grad_threshold=0.0002, min_opacity=0.005, render_with_gsplat=False):
-        # adding anchors
+        grad_threshold = grad_threshold * 4.5e-3 if render_with_gsplat else grad_threshold
+        # # adding anchors
         grads = self.offset_gradient_accum / self.offset_denom # [N*k, 1]
         grads[grads.isnan()] = 0.0
         grads_norm = torch.norm(grads, dim=-1)
@@ -740,7 +847,7 @@ class GaussianModel:
                                            device=self.offset_gradient_accum.device)
         self.offset_gradient_accum = torch.cat([self.offset_gradient_accum, padding_offset_gradient_accum], dim=0)
         
-        # prune anchors
+        # # prune anchors
         prune_mask = (self.opacity_accum < min_opacity*self.anchor_demon).squeeze(dim=1)
         anchors_mask = (self.anchor_demon > check_interval*success_threshold).squeeze(dim=1) # [N, 1]
         prune_mask = torch.logical_and(prune_mask, anchors_mask) # [N] 
@@ -773,154 +880,6 @@ class GaussianModel:
             self.prune_anchor(prune_mask)
         
         self.max_radii2D = torch.zeros((self.get_anchor.shape[0]), device="cuda")
-
-    #################################################################
-    #################################################################
-    #################################################################
-    def update_anchor(self, residual_gaussians):
-        d = {
-            "anchor": residual_gaussians._anchor,
-            "scaling": residual_gaussians._scaling,
-            "rotation": residual_gaussians._rotation,
-            "anchor_feat": residual_gaussians._anchor_feat,
-            "offset": residual_gaussians._offset,
-            "opacity": residual_gaussians._opacity,
-        } 
-
-        temp_anchor_demon = torch.cat([self.anchor_demon, torch.zeros([residual_gaussians._opacity.shape[0], 1], device='cuda').float()], dim=0)
-        del self.anchor_demon
-        self.anchor_demon = temp_anchor_demon
-
-        temp_opacity_accum = torch.cat([self.opacity_accum, torch.zeros([residual_gaussians._opacity.shape[0], 1], device='cuda').float()], dim=0)
-        del self.opacity_accum
-        self.opacity_accum = temp_opacity_accum
-
-        torch.cuda.empty_cache()
-
-        optimizable_tensors = self.cat_tensors_to_optimizer(d)
-        self._anchor = optimizable_tensors["anchor"]
-        self._scaling = optimizable_tensors["scaling"]
-        self._rotation = optimizable_tensors["rotation"]
-        self._anchor_feat = optimizable_tensors["anchor_feat"]
-        self._offset = optimizable_tensors["offset"]
-        self._opacity = optimizable_tensors["opacity"]
-    
-        padding_offset_demon = torch.zeros([self.get_anchor.shape[0]*self.n_offsets - self.offset_denom.shape[0], 1],
-                                           dtype=torch.int32, 
-                                           device=self.offset_denom.device)
-        self.offset_denom = torch.cat([self.offset_denom, padding_offset_demon], dim=0)
-
-        padding_offset_gradient_accum = torch.zeros([self.get_anchor.shape[0]*self.n_offsets - self.offset_gradient_accum.shape[0], 1],
-                                           dtype=torch.int32, 
-                                           device=self.offset_gradient_accum.device)
-        self.offset_gradient_accum = torch.cat([self.offset_gradient_accum, padding_offset_gradient_accum], dim=0)
-
-
-    def update_scaling(self, ratio=0.8, min_voxel_threshold=1.5):
-        scales = self.get_scaling
-        mask = scales[:, :3].max() > min_voxel_threshold * self.voxel_size
-        self.scaling[mask] = self.scaling[mask] * ratio
-
-
-    def pure_prune_anchor(self, check_interval=100, success_threshold=0.8, min_opacity=0.005):
-        # prune anchors
-        prune_mask = (self.opacity_accum < min_opacity*self.anchor_demon).squeeze(dim=1)
-        anchors_mask = (self.anchor_demon > check_interval*success_threshold).squeeze(dim=1) # [N, 1]
-        # anchors_mask = torch.zeros_like(self.anchor_demon).squeeze(dim=1)
-        prune_mask = torch.logical_and(prune_mask, anchors_mask) # [N] 
-        
-        # update offset_denom
-        offset_denom = self.offset_denom.view([-1, self.n_offsets])[~prune_mask]
-        offset_denom = offset_denom.view([-1, 1])
-        del self.offset_denom
-        self.offset_denom = offset_denom
-
-        offset_gradient_accum = self.offset_gradient_accum.view([-1, self.n_offsets])[~prune_mask]
-        offset_gradient_accum = offset_gradient_accum.view([-1, 1])
-        del self.offset_gradient_accum
-        self.offset_gradient_accum = offset_gradient_accum
-        
-        # update opacity accum 
-        if anchors_mask.sum()>0:
-            self.opacity_accum[anchors_mask] = torch.zeros([anchors_mask.sum(), 1], device='cuda').float()
-            self.anchor_demon[anchors_mask] = torch.zeros([anchors_mask.sum(), 1], device='cuda').float()
-        
-        temp_opacity_accum = self.opacity_accum[~prune_mask]
-        del self.opacity_accum
-        self.opacity_accum = temp_opacity_accum
-
-        temp_anchor_demon = self.anchor_demon[~prune_mask]
-        del self.anchor_demon
-        self.anchor_demon = temp_anchor_demon
-
-        if prune_mask.shape[0]>0:
-            self.prune_anchor(prune_mask)
-        
-        self.max_radii2D = torch.zeros((self.get_anchor.shape[0]), device="cuda") 
-
-
-    def prune_anchor_withmask(self, prune_mask):
-        # update offset_denom
-        offset_denom = self.offset_denom.view([-1, self.n_offsets])[~prune_mask]
-        offset_denom = offset_denom.view([-1, 1])
-        del self.offset_denom
-        self.offset_denom = offset_denom
-
-        offset_gradient_accum = self.offset_gradient_accum.view([-1, self.n_offsets])[~prune_mask]
-        offset_gradient_accum = offset_gradient_accum.view([-1, 1])
-        del self.offset_gradient_accum
-        self.offset_gradient_accum = offset_gradient_accum
-        
-        temp_opacity_accum = self.opacity_accum[~prune_mask]
-        del self.opacity_accum
-        self.opacity_accum = temp_opacity_accum
-
-        temp_anchor_demon = self.anchor_demon[~prune_mask]
-        del self.anchor_demon
-        self.anchor_demon = temp_anchor_demon
-
-        if prune_mask.shape[0]>0:
-            self.prune_anchor(prune_mask)
-        
-        self.max_radii2D = torch.zeros((self.get_anchor.shape[0]), device="cuda") 
-
-
-    def keep_position_grad(self,):
-        self._scaling.requires_grad = False
-        self._rotation.requires_grad = False
-        self._anchor_feat.requires_grad = False
-        self._opacity.requires_grad = False
-
-    def resume_grad(self,):
-        self._anchor.requires_grad = True
-        self._scaling.requires_grad = True
-        self._rotation.requires_grad = True
-        self._anchor_feat.requires_grad = True
-        self._offset.requires_grad = True
-        self._opacity.requires_grad = True
-    
-
-    def scale_anchor_withmaskratio(self, mask, ratio, mode="anchor_scale"):
-        assert mode in ["anchor_scale", "anchor_offset"]
-        assert ratio.shape[0] == self._scaling.shape[0]
-        if ratio.dim() == 1:
-            ratio = ratio.unsqueeze(dim=1)
-        # print(f"[DEBUG] ratio.shape: {ratio.shape}, mask.shape: {mask.shape}, self._scaling.shape: {self._scaling.shape}")
-        if mode == "anchor_scale":
-            self._scaling[mask][:, 3:] = self._scaling[mask][:, 3:] + torch.log(ratio[mask] + 1e-6)
-        elif mode == "anchor_offset":
-            self._scaling[mask][:, :3] = self._scaling[mask][:, :3] + torch.log(ratio[mask] + 1e-6)
-        else:
-            raise NotImplementedError
-
-    
-    def scale_down(self, scaledown_ratio):
-        mask = self.get_scaling[:, 3:].detach().clone().max(dim=1).values // self.voxel_size > 1000
-        self._scaling[mask][:, 3:] = self._scaling[mask][:, 3:] * scaledown_ratio
-    #################################################################
-    #################################################################
-    #################################################################
-                
 
     def save_mlp_checkpoints(self, path, mode = 'split'):
         mkdir_p(os.path.dirname(path))

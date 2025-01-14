@@ -25,7 +25,7 @@ from PIL import Image
 import torchvision.transforms.functional as tf
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import prefilter_voxel, render, render_with_consistency_loss, prefilter_voxel_gsplat, render_gsplat, render_with_consistency_loss_gsplat
+from gaussian_renderer import prefilter_voxel, render, render_with_consistency_loss, prefilter_voxel_gsplat, render_gsplat, render_with_consistency_loss_gsplat, render_gsplat_xyzonly
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
@@ -35,6 +35,10 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from utils.distributed_utils import init_distributed_mode, dist, cleanup
+
+from scene.interpolation import GaussianInterpolation
+from scene.interpolation_point import PointInterpolation
+from scene.freq_modifier import FrequencyModifier
 
 torch.set_num_threads(32)
 
@@ -70,7 +74,8 @@ def saveRuntimeCode(dst: str) -> None:
 
 def set_require_grad(model, is_require_grad):
     for param in model.parameters():
-        param.requires_grad = is_require_grad
+        # param.requires_grad = is_require_grad
+        param = param.detach().requires_grad_(is_require_grad)
 
 
 def replace_model(model_a, model_b):
@@ -91,8 +96,16 @@ def sync_model_with_rank0(model):
         for param in model.parameters():
             dist.broadcast(param.data, 0)
 
-
-def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wandb=None, logger=None, ply_path=None, testing_freq=1000, render_with_gsplat=False):
+"""
+**********************************************************************
+**********************************************************************
+**********************************************************************
+*************************** Training script **************************
+**********************************************************************
+**********************************************************************
+**********************************************************************
+"""
+def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wandb=None, logger=None, ply_path=None, testing_freq=1000, debug=True, render_with_gsplat=True, absgrad=False, train_with_scaledown=True, antialiasing=False):
     first_iter = 0
     # num_blocks = dataset.block_num
     num_blocks = 1
@@ -118,8 +131,9 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
 
     gaussians = GaussianModel(dataset.feat_dim, dataset.n_offsets, dataset.voxel_size, dataset.update_depth, dataset.update_init_factor, dataset.update_hierachy_factor, dataset.use_feat_bank, dataset.appearance_dim, dataset.ratio, dataset.add_opacity_dist, dataset.add_cov_dist, dataset.add_color_dist)
     
-    # scene = Scene(dataset, gaussians, ply_path=ply_path, shuffle=False, distributed=True, block_id=block_id)
     scene = Scene(dataset, gaussians, ply_path=ply_path, shuffle=False, block_id=-1, load_test_scenes=True)
+    # iteration = str(opt.iterations) + "_blockA_aera"
+    # scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False, block_id=-1, load_test_scenes=True)
 
     # if not the first block, sync mlp data with previous block
     if multi_block_per_gpu and rank == 0 and block_id != rank * num_blocks_per_gpu:
@@ -164,6 +178,14 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
     last_gaussians = None
     first_iter += 1
     dist.barrier()
+
+    ######################################################################
+    freq = FrequencyModifier(dataset, scene, opt, pipe, tb_writer)
+    freq_topk = 1000
+    if debug:
+        freq_plot_dir = os.path.join(dataset.model_path, "freq_plot")
+        os.makedirs(freq_plot_dir, exist_ok=True)
+    ######################################################################
   
     iteration = first_iter
     while iteration <= opt.iterations:
@@ -232,23 +254,24 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                     viewpoint_stack = scene.getTrainCameras().copy()
                 viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
 
+
                 # Render
                 if (cur_iter - 1) == debug_from:
                     pipe.debug = True
                 if render_with_gsplat:
-                    voxel_visible_mask = prefilter_voxel_gsplat(viewpoint_cam, gaussians, pipe, background)
+                    voxel_visible_mask = prefilter_voxel_gsplat(viewpoint_cam, gaussians, pipe, background, absgrad=absgrad, antialias=antialiasing)
                 else:
                     voxel_visible_mask = prefilter_voxel(viewpoint_cam, gaussians, pipe, background)
 
                 retain_grad = (cur_iter < opt.update_until and cur_iter >= 0)
                 if gaussians.freeze_all_mlp:
                     if render_with_gsplat:
-                        render_pkg = render_gsplat(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
+                        render_pkg = render_gsplat(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad, absgrad=absgrad, antialias=antialiasing)
                     else:
                         render_pkg = render(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
                 else:
                     if render_with_gsplat:
-                        render_pkg = render_with_consistency_loss_gsplat(viewpoint_cam, gaussians, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
+                        render_pkg = render_with_consistency_loss_gsplat(viewpoint_cam, gaussians, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad, absgrad=absgrad,  antialias=antialiasing)
                     else:
                         render_pkg = render_with_consistency_loss(viewpoint_cam, gaussians, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad)
                 
@@ -266,11 +289,29 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                 ssim_loss = (1.0 - ssim(image, gt_image))
                 scaling_reg = scaling.prod(dim=1).mean()
                 loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * ssim_loss + 0.01 * scaling_reg
-            
-                if render_with_gsplat:
-                    Ll1_depth = 0.5 * l1_loss(depth, gt_depth)
-                    loss += Ll1_depth
+                ###############################################################
+                ###############################################################
+                # Ll1 = l1_loss(image, gt_image)
+                # ssim_loss = (1.0 - ssim(image, gt_image))
+                # scaling_mask = scaling.detach().clone().max(dim=1).values // dataset.voxel_size
+                # scaling_mask = scaling_mask > 500
+                # scaling_reg = scaling.prod(dim=1) * scaling_mask
+                # scaling_reg = scaling_reg.mean()
+                # loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * ssim_loss + 0.01 * scaling_reg
 
+                if render_with_gsplat:
+                    # if train_with_scaledown:
+                    #     # ratio = random.random()
+                    #     # render_pkg_scaledown = render_gsplat_xyzonly(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=True,scaledown_ratio=ratio)
+                    #     # render_pkg_scaledown = render_gsplat(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=True,scaledown_ratio=ratio)
+                    #     depth = render_pkg_scaledown["depth"]
+                    #     gt_depth = gt_depth * render_pkg_scaledown["alpha"].detach().clone()
+                    Ll1_depth = l1_loss(depth, gt_depth) * (1 - opt.lambda_dssim)
+                    # Ll1_depth = l1_loss(depth, gt_depth) * (1 - opt.lambda_dssim) * 0.1
+                    loss += Ll1_depth
+                ###############################################################
+                ###############################################################
+            
                 if not gaussians.freeze_all_mlp:
                     # consistency loss
                     consistency_loss = render_pkg['consistency_loss']
@@ -378,14 +419,22 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                             print("\n[ITER {}] Block_{} Saving Gaussians".format(cur_iter, block_id))
                         scene.save(cur_iter, block_id=block_id)
                     
-                    # densification
+                    #######################################################
+                    #######################################################
+                    # prune
                     if cur_iter < opt.update_until and cur_iter > opt.start_stat:
                         # add statis
-                        gaussians.training_statis(viewspace_point_tensor, opacity, visibility_filter, offset_selection_mask, voxel_visible_mask, render_with_gsplat)
-                        
+                        gaussians.training_statis(viewspace_point_tensor, opacity, visibility_filter, offset_selection_mask, voxel_visible_mask, render_with_gsplat, absgrad=absgrad)
                         # densification
                         if cur_iter > opt.update_from and cur_iter % opt.update_interval == 0:
                             gaussians.adjust_anchor(check_interval=opt.update_interval, success_threshold=opt.success_threshold, grad_threshold=opt.densify_grad_threshold, min_opacity=opt.min_opacity, render_with_gsplat=render_with_gsplat)
+                        
+                    # if cur_iter < opt.update_until and cur_iter > opt.start_stat:
+                    #     gaussians.training_statis(viewspace_point_tensor, opacity, visibility_filter, offset_selection_mask, voxel_visible_mask, render_with_gsplat)
+                    #     if cur_iter > opt.update_from and cur_iter % opt.update_interval == 0:
+                    #         gaussians.pure_prune_anchor(check_interval=opt.update_interval, success_threshold=opt.success_threshold, min_opacity=opt.min_opacity)
+                    #######################################################
+                    #######################################################
                     elif cur_iter == opt.update_until:
                         print("### Stop densification.")
                         gaussians.opacity_accum = None
@@ -397,6 +446,59 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                     if cur_iter < opt.iterations:
                         gaussians.optimizer.step()
                         gaussians.optimizer.zero_grad(set_to_none = True)
+
+                ############################################################
+                ############################################################
+                ### NOTE: frequency modifier ###
+                # # if cur_iter < opt.update_from:
+                # #     freq_topk = 3000
+                # if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
+                #     with torch.no_grad():
+                #         frequency = freq.anchor_freq(gaussians, mode="anchor_scale")
+                #         frequency_filtered = freq.filter_freq_direct(frequency,  k=freq_topk)
+                #         freq.plot_freq_compare(frequency, frequency_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_compare.png"))
+                #         gaussians_prune_mask = ~frequency_filtered["freq_mask"]
+                #         gaussians.prune_anchor_withmask(gaussians_prune_mask)
+                #     freq_topk = freq_topk + 1000
+                ### NOTE: frequency modifier ###
+                # if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
+                #     with torch.no_grad():
+                #         anchorscale_freqscale = 1.
+                #         anchoroffset_freqscale = 2.
+                #         freq_scale = freq.anchor_freq_smooth(gaussians, freq_scale=anchorscale_freqscale, mode="anchor_scale")
+                #         freq_offset = freq.anchor_freq_smooth(gaussians, freq_scale=anchoroffset_freqscale, mode="anchor_offset")
+                #         freq_scale_filtered = freq.filter_smooth(freq_scale, freq_scale=anchorscale_freqscale)
+                #         freq_offset_filtered = freq.filter_smooth(freq_offset, freq_scale=anchoroffset_freqscale)
+                #         freq.plot_freq_compare(freq_scale, freq_scale_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_scale.png"))
+                #         freq.plot_freq_compare(freq_offset, freq_offset_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_offset.png"))
+                #         ### NOTE: prune oversized ###
+                #         # freq_mask = torch.logical_and(freq_scale_filtered["freq_mask"], freq_offset_filtered["freq_mask"])
+                #         # gaussians_prune_mask = ~freq_mask
+                #         # gaussians.prune_anchor_withmask(gaussians_prune_mask)
+                #         ### NOTE: scale oversized ###
+                #         gaussians.scale_anchor_withmaskratio(freq_scale_filtered['freq_mask'], freq_scale_filtered['freq_scale_ratio'], mode="anchor_scale")
+                #         gaussians.scale_anchor_withmaskratio(freq_offset_filtered['freq_mask'], freq_offset_filtered['freq_scale_ratio'], mode="anchor_offset")
+                #     freq_topk = freq_topk + 1000
+                ### NOTE: interpolation ###
+                if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
+                    torch.cuda.empty_cache()
+                    # gaussian_interpolate = GaussianInterpolation(
+                    #     dataset, scene, opt, pipe, gaussians, tb_writer,
+                    #     depth_threshold=0.1, color_threshold=0.1, 
+                    #     voxel_stride_portion=0.8, interpolate_interval=40, 
+                    #     train_iterations=200
+                    #     ) # interpolate_interval=10
+                    gaussian_interpolate = PointInterpolation(
+                        dataset, scene, opt, pipe, gaussians, tb_writer,
+                        depth_threshold=0.1, color_threshold=0.1, 
+                        voxel_stride_portion=0.8, interpolate_interval=1, 
+                        train_iterations=0
+                        # train_iterations=200
+                        )
+                    iterpolated = gaussian_interpolate(resolution_scaling=1, scaledown_ratio=1)
+                    torch.cuda.empty_cache()
+                ############################################################
+                ############################################################
 
             viewpoint_stack_list[idx] = viewpoint_stack
             last_gaussians = gaussians
@@ -560,6 +662,7 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
+    # "--pretrained_path", "outputs/pretrianed/matrixcity", 
     torch.cuda.reset_peak_memory_stats()
 
     # Distributed training

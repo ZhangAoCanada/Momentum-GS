@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 import torch
+import einops
 from einops import repeat
 
 import math
@@ -18,15 +19,22 @@ from scene.gaussian_model import GaussianModel
 import gsplat
 
 
-def generate_neural_gaussians(viewpoint_camera, pc : GaussianModel, visible_mask=None, is_training=False):
+def generate_neural_gaussians(viewpoint_camera, pc : GaussianModel, visible_mask=None, is_training=False, interpolation=False, scaledown_ratio=None):
     ## view frustum filtering for acceleration    
     if visible_mask is None:
         visible_mask = torch.ones(pc.get_anchor.shape[0], dtype=torch.bool, device = pc.get_anchor.device)
     
-    feat = pc._anchor_feat[visible_mask]
+    feat = pc._anchor_feat[visible_mask] if not interpolation else pc.get_anchor_feat[visible_mask]
     anchor = pc.get_anchor[visible_mask]
-    grid_offsets = pc._offset[visible_mask]
+    grid_offsets = pc._offset[visible_mask] if not interpolation else pc.get_offset[visible_mask]
     grid_scaling = pc.get_scaling[visible_mask]
+
+    #############################################################
+    if scaledown_ratio is not None and scaledown_ratio > 0.0 and scaledown_ratio < 1.0:
+        min_scale = pc.voxel_size * 1.0
+        grid_scaling[:, 3:] = grid_scaling[:, 3:] * scaledown_ratio
+        grid_scaling[:, 3:] = torch.where(grid_scaling[:, 3:] < min_scale, min_scale, grid_scaling[:, 3:])
+    #############################################################
 
     ## get view properties for anchor
     ob_view = anchor - viewpoint_camera.camera_center
@@ -102,7 +110,7 @@ def generate_neural_gaussians(viewpoint_camera, pc : GaussianModel, visible_mask
     # post-process cov
     scaling = scaling_repeat[:,3:] * torch.sigmoid(scale_rot[:,:3])
     rot = pc.rotation_activation(scale_rot[:,3:7])
-    
+
     # post-process offsets to get centers for gaussians
     offsets = offsets * scaling_repeat[:,:3]
     xyz = repeat_anchor + offsets
@@ -113,15 +121,22 @@ def generate_neural_gaussians(viewpoint_camera, pc : GaussianModel, visible_mask
         return xyz, color, opacity, scaling, rot
     
 
-def generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc : GaussianModel, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, visible_mask=None, is_training=False):
+def generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc : GaussianModel, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, visible_mask=None, is_training=False, interpolation=False, scaledown_ratio=None):
     ## view frustum filtering for acceleration    
     if visible_mask is None:
         visible_mask = torch.ones(pc.get_anchor.shape[0], dtype=torch.bool, device = pc.get_anchor.device)
     
-    feat = pc._anchor_feat[visible_mask]
+    feat = pc._anchor_feat[visible_mask] if not interpolation else pc.get_anchor_feat[visible_mask]
     anchor = pc.get_anchor[visible_mask]
-    grid_offsets = pc._offset[visible_mask]
+    grid_offsets = pc._offset[visible_mask] if not interpolation else pc.get_offset[visible_mask]
     grid_scaling = pc.get_scaling[visible_mask]
+
+    #############################################################
+    if scaledown_ratio is not None and scaledown_ratio > 0.0 and scaledown_ratio < 1.0:
+        min_scale = pc.voxel_size * 1.0
+        grid_scaling[:, 3:] = grid_scaling[:, 3:] * scaledown_ratio
+        grid_scaling[:, 3:] = torch.where(grid_scaling[:, 3:] < min_scale, min_scale, grid_scaling[:, 3:])
+    #############################################################
 
     ## get view properties for anchor
     ob_view = anchor - viewpoint_camera.camera_center
@@ -211,7 +226,7 @@ def generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc : Gaus
     scaling_main = scaling_repeat[:,3:] * torch.sigmoid(scale_rot_main[:,:3])
     rot = pc.rotation_activation(scale_rot[:,3:7])
     rot_main = torch.nn.functional.normalize(scale_rot_main[:,3:7])
-    
+
     # post-process offsets to get centers for gaussians
     offsets = offsets * scaling_repeat[:,:3]
     xyz = repeat_anchor + offsets
@@ -222,7 +237,7 @@ def generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc : Gaus
         return xyz, color, opacity, scaling, rot
     
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None, resolution_scaling_factor=1.0, interpolation=False, scaledown_ratio=None):
     """
     Render the scene. 
     
@@ -232,9 +247,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     if xyz is None:
         if is_training:
-            xyz, color, opacity, scaling, rot, neural_opacity, mask = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training)
+            xyz, color, opacity, scaling, rot, neural_opacity, mask = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
         else:
-            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training)
+            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
 
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     screenspace_points = torch.zeros_like(xyz, dtype=pc.get_anchor.dtype, requires_grad=True, device="cuda") + 0
@@ -249,8 +264,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
     raster_settings = GaussianRasterizationSettings(
-        image_height=int(viewpoint_camera.image_height),
-        image_width=int(viewpoint_camera.image_width),
+        image_height=int(viewpoint_camera.image_height * resolution_scaling_factor),
+        image_width=int(viewpoint_camera.image_width * resolution_scaling_factor),
         tanfovx=tanfovx,
         tanfovy=tanfovy,
         bg=bg_color,
@@ -293,7 +308,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
                 }
 
 
-def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None):
+def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None, resolution_scaling_factor=1.0, interpolation=False, scaledown_ratio=None):
     """
     Render the scene. 
     
@@ -304,7 +319,7 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
 
     if xyz is None:
         if is_training:
-            xyz, color, color_main, opacity, scaling, scaling_main, rot, rot_main, neural_opacity, neural_opacity_main, mask = generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, visible_mask, is_training=is_training)
+            xyz, color, color_main, opacity, scaling, scaling_main, rot, rot_main, neural_opacity, neural_opacity_main, mask = generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
 
             color_loss = torch.nn.functional.mse_loss(color, color_main)
             rot_loss = torch.nn.functional.mse_loss(rot, rot_main)
@@ -313,7 +328,7 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
 
             consistency_loss = color_loss + rot_loss + scaling_loss + opacity_loss
         else:
-            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training)
+            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
 
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     screenspace_points = torch.zeros_like(xyz, dtype=pc.get_anchor.dtype, requires_grad=True, device="cuda") + 0 # [672276, 3]
@@ -328,8 +343,8 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
     raster_settings = GaussianRasterizationSettings(
-        image_height=int(viewpoint_camera.image_height),
-        image_width=int(viewpoint_camera.image_width),
+        image_height=int(viewpoint_camera.image_height * resolution_scaling_factor),
+        image_width=int(viewpoint_camera.image_width * resolution_scaling_factor),
         tanfovx=tanfovx,
         tanfovy=tanfovy,
         bg=bg_color,
@@ -378,7 +393,7 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
                 }
     
 
-def prefilter_voxel(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None):
+def prefilter_voxel(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, resolution_scaling_factor=1.0, override_color = None):
     """
     Render the scene. 
     
@@ -396,8 +411,8 @@ def prefilter_voxel(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
     raster_settings = GaussianRasterizationSettings(
-        image_height=int(viewpoint_camera.image_height),
-        image_width=int(viewpoint_camera.image_width), 
+        image_height=int(viewpoint_camera.image_height * resolution_scaling_factor),
+        image_width=int(viewpoint_camera.image_width * resolution_scaling_factor), 
         tanfovx=tanfovx,
         tanfovy=tanfovy,
         bg=bg_color,
@@ -432,7 +447,7 @@ def prefilter_voxel(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch
     return radii_pure > 0
 
 
-def render_anchor(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier=1.0, visible_mask=None, override_color=None, resolution_scaling_factor=1.0):
+def render_anchor(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier=1.0, visible_mask=None, override_color=None, resolution_scaling_factor=1.0, scaledown_ratio=None):
 
     # acquire the anchor attributes
     xyz = pc.get_anchor[visible_mask]
@@ -463,14 +478,21 @@ def render_anchor(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
     scales = None
     rotations = None
     cov3D_precomp = None
-    if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
-        cov3D_precomp = cov3D_precomp[visible_mask]
-    else:
-        scales = pc.get_scaling
-        rotations = pc.get_rotation
-        scales = scales[visible_mask]
-        rotations = rotations[visible_mask]
+    # if pipe.compute_cov3D_python:
+    #     cov3D_precomp = pc.get_covariance(scaling_modifier)
+    #     cov3D_precomp = cov3D_precomp[visible_mask]
+    # else:
+    scales = pc.get_scaling
+    rotations = pc.get_rotation
+    scales = scales[visible_mask]
+    rotations = rotations[visible_mask]
+    
+    ###############################################################
+    if scaledown_ratio is not None and scaledown_ratio > 0.0 and scaledown_ratio < 1.0:
+        min_scale = pc.voxel_size * 1.0
+        scales[:, :3] = scales[:, :3] * scaledown_ratio
+        scales[:, :3] = torch.where(scales[:, :3] < min_scale, min_scale, scales[:, :3])
+    ###############################################################
 
     num_per_row = 8
     image_row_list = []
@@ -506,25 +528,27 @@ def render_anchor(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
 
 
 
-def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None):
+def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None, absgrad=False, override_training=False, resolution_scaling_factor=1.0, interpolation=False, scaledown_ratio=None, antialias=False):
     """
     Render the scene. 
     
     Background tensor (bg_color) must be on GPU!
     """
     is_training = pc.get_color_mlp.training
+    if override_training:
+        is_training = override_training
 
     if xyz is None:
         if is_training:
-            xyz, color, opacity, scaling, rot, neural_opacity, mask = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training)
+            xyz, color, opacity, scaling, rot, neural_opacity, mask = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
         else:
-            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training)
+            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
 
     # viewpoint attributes
     fovx = viewpoint_camera.FoVx
     fovy = viewpoint_camera.FoVy
-    W = viewpoint_camera.image_width
-    H = viewpoint_camera.image_height
+    W = int(viewpoint_camera.image_width * resolution_scaling_factor)
+    H = int(viewpoint_camera.image_height * resolution_scaling_factor)
     fx = W / (2 * math.tan(fovx / 2))
     fy = H / (2 * math.tan(fovy / 2))
     K = torch.tensor([[fx, 0, W / 2], [0, fy, H / 2], [0, 0, 1]], device="cuda").unsqueeze(0)
@@ -534,6 +558,10 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
     """
     meta.keys() = {'camera_ids', 'gaussian_ids', 'radii', 'means2d', 'depths', 'conics', 'opacities', 'tile_width', 'tile_height', 'tiles_per_gauss', 'isect_ids', 'flatten_ids', 'isect_offsets', 'width', 'height', 'tile_size', 'n_cameras'}
     """
+    if antialias:
+        rasterize_mode = "antialiased"
+    else:
+        rasterize_mode = "classic"
     rendered_image, rendered_alphas, meta = gsplat.rendering.rasterization(
         xyz,
         rot,
@@ -546,7 +574,8 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
         H,
         render_mode="RGB+D",
         packed=True, 
-        absgrad=True
+        absgrad=absgrad,
+        rasterize_mode=rasterize_mode
     )
     rendered_depth = rendered_image.squeeze(0)[..., 3:4].permute(2, 0, 1)
     rendered_image = rendered_image.squeeze(0)[..., :3].permute(2, 0, 1)
@@ -555,11 +584,14 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
     visibility_filter = torch.zeros(xyz.shape[0], dtype=torch.bool, device=xyz.device)
     visibility_filter[meta['gaussian_ids']] = True
 
+    if not absgrad:
+        meta['means2d'].retain_grad()
     if is_training:
         return {"render": rendered_image,
                 "alpha": rendered_alphas,
                 "depth": rendered_depth,
-                "viewspace_points": meta["means2d"],
+                # "viewspace_points": meta["means2d"],
+                "viewspace_points": meta,
                 "visibility_filter" : visibility_filter,
                 "radii": meta["radii"],
                 "selection_mask": mask, 
@@ -570,14 +602,15 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
         return {"render": rendered_image,
                 "alpha": rendered_alphas,
                 "depth": rendered_depth,
-                "viewspace_points": meta["means2d"],
+                # "viewspace_points": meta["means2d"],
+                "viewspace_points": meta, 
                 "visibility_filter" : meta["radii"] > 0,
                 "radii": meta["radii"],
                 }
 
 
 
-def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None):
+def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, absgrad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None, resolution_scaling_factor=1.0, interpolation=False, scaledown_ratio=None, antialias=False):
     """
     Render the scene. 
     
@@ -588,7 +621,7 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
 
     if xyz is None:
         if is_training:
-            xyz, color, color_main, opacity, scaling, scaling_main, rot, rot_main, neural_opacity, neural_opacity_main, mask = generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, visible_mask, is_training=is_training)
+            xyz, color, color_main, opacity, scaling, scaling_main, rot, rot_main, neural_opacity, neural_opacity_main, mask = generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc, momentum_mlp_color, momentum_mlp_cov, momentum_mlp_opacity, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
 
             color_loss = torch.nn.functional.mse_loss(color, color_main)
             rot_loss = torch.nn.functional.mse_loss(rot, rot_main)
@@ -597,13 +630,13 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
 
             consistency_loss = color_loss + rot_loss + scaling_loss + opacity_loss
         else:
-            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training)
+            xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=is_training, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
 
     # viewpoint attributes
     fovx = viewpoint_camera.FoVx
     fovy = viewpoint_camera.FoVy
-    W = viewpoint_camera.image_width
-    H = viewpoint_camera.image_height
+    W = int(viewpoint_camera.image_width * resolution_scaling_factor)
+    H = int(viewpoint_camera.image_height * resolution_scaling_factor)
     fx = W / (2 * math.tan(fovx / 2))
     fy = H / (2 * math.tan(fovy / 2))
     K = torch.tensor([[fx, 0, W / 2], [0, fy, H / 2], [0, 0, 1]], device="cuda").unsqueeze(0)
@@ -613,6 +646,10 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
     """
     meta.keys() = {'camera_ids', 'gaussian_ids', 'radii', 'means2d', 'depths', 'conics', 'opacities', 'tile_width', 'tile_height', 'tiles_per_gauss', 'isect_ids', 'flatten_ids', 'isect_offsets', 'width', 'height', 'tile_size', 'n_cameras'}
     """
+    if antialias:
+        rasterize_mode = "antialiased"
+    else:
+        rasterize_mode = "classic"
     rendered_image, rendered_alphas, meta = gsplat.rendering.rasterization(
         xyz,
         rot,
@@ -625,7 +662,8 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
         H,
         render_mode="RGB+D",
         packed=True, 
-        absgrad=True
+        absgrad=absgrad, 
+        rasterize_mode=rasterize_mode
     )
     rendered_depth = rendered_image.squeeze(0)[..., 3:4].permute(2, 0, 1)
     rendered_image = rendered_image.squeeze(0)[..., :3].permute(2, 0, 1)
@@ -634,12 +672,15 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
     visibility_filter = torch.zeros(xyz.shape[0], dtype=torch.bool, device=xyz.device)
     visibility_filter[meta['gaussian_ids']] = True
     
+    if not absgrad:
+        meta['means2d'].retain_grad()
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     if is_training:
         return {"render": rendered_image,
                 "alpha": rendered_alphas,
                 "depth": rendered_depth,
-                "viewspace_points": meta['means2d'],
+                # "viewspace_points": meta['means2d'],
+                "viewspace_points": meta, 
                 "visibility_filter" : visibility_filter,
                 "radii": meta['radii'],
                 "selection_mask": mask,
@@ -653,14 +694,15 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
                 }
     else:
         return {"render": rendered_image,
-                "viewspace_points": meta['means2d'],
+                # "viewspace_points": meta['means2d'],
+                "viewspace_points": meta, 
                 "visibility_filter" : meta['radii'] > 0,
                 "radii": meta['radii'],
                 }
 
 
 
-def prefilter_voxel_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, resolution_scaling_factor=1.0, rasterization_mode="classic"):
+def prefilter_voxel_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, resolution_scaling_factor=1.0, absgrad=False, antialias=False):
     """
     Render the scene. 
     
@@ -674,13 +716,17 @@ def prefilter_voxel_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color 
     # viewpoint attributes
     fovx = viewpoint_camera.FoVx
     fovy = viewpoint_camera.FoVy
-    W = viewpoint_camera.image_width
-    H = viewpoint_camera.image_height
+    W = int(viewpoint_camera.image_width * resolution_scaling_factor)
+    H = int(viewpoint_camera.image_height * resolution_scaling_factor)
     fx = W / (2 * math.tan(fovx / 2))
     fy = H / (2 * math.tan(fovy / 2))
     K = torch.tensor([[fx, 0, W / 2], [0, fy, H / 2], [0, 0, 1]], device="cuda").unsqueeze(0)
     w2c = viewpoint_camera.world_view_transform.unsqueeze(0)
 
+    if antialias:
+        rasterize_mode = "antialiased"
+    else:
+        rasterize_mode = "classic"
     proj_results = gsplat.fully_fused_projection(
         means3D,
         covars,
@@ -688,10 +734,10 @@ def prefilter_voxel_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color 
         scales[:, :3] * scaling_modifier,
         w2c.transpose(1, 2),
         K,
-        int(W * resolution_scaling_factor),
-        int(H * resolution_scaling_factor),
+        W, 
+        H, 
         packed=True,
-        calc_compensations=(rasterization_mode=="antialiased"),
+        calc_compensations=(rasterize_mode=="antialiased"),
     )
 
     (
@@ -711,20 +757,27 @@ def prefilter_voxel_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color 
 
 
 
-def render_anchor_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier=1.0, visible_mask=None, override_color=None, resolution_scaling_factor=1.0):
+def render_anchor_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier=1.0, visible_mask=None, override_color=None, resolution_scaling_factor=1.0, scaledown_ratio=None, antialias=False):
     # gaussian attributes
     means = pc.get_anchor[visible_mask]
     feat = pc._anchor_feat[visible_mask]
     # opacity = pc.opacity_activation(pc._opacity)[visible_mask]
-    opacity = torch.ones_like(pc._opacity[visible_mask], device=pc.get_anchor.device)
+    opacity = torch.ones_like(pc._opacity[visible_mask], device=pc.get_anchor.device) * 0.5
     scales = pc.get_scaling[visible_mask]
     quats = pc.get_rotation[visible_mask]
+
+    ###############################################################
+    if scaledown_ratio is not None and scaledown_ratio > 0.0 and scaledown_ratio < 1.0:
+        min_scale = pc.voxel_size * 1.0
+        scales[:, :3] = scales[:, :3] * scaledown_ratio
+        scales[:, :3] = torch.where(scales[:, :3] < min_scale, min_scale, scales[:, :3])
+    ###############################################################
 
     # viewpoint attributes
     fovx = viewpoint_camera.FoVx
     fovy = viewpoint_camera.FoVy
-    W = viewpoint_camera.image_width
-    H = viewpoint_camera.image_height
+    W = int(viewpoint_camera.image_width * resolution_scaling_factor)
+    H = int(viewpoint_camera.image_height * resolution_scaling_factor)
     fx = W / (2 * math.tan(fovx / 2))
     fy = H / (2 * math.tan(fovy / 2))
     K = torch.tensor([[fx, 0, W / 2], [0, fy, H / 2], [0, 0, 1]], device="cuda").unsqueeze(0)
@@ -734,37 +787,96 @@ def render_anchor_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : 
     """
     meta.keys() = {'camera_ids', 'gaussian_ids', 'radii', 'means2d', 'depths', 'conics', 'opacities', 'tile_width', 'tile_height', 'tiles_per_gauss', 'isect_ids', 'flatten_ids', 'isect_offsets', 'width', 'height', 'tile_size', 'n_cameras'}
     """
-    num_per_row = 8
-    image_row_list = []
-    image_list = []
-    for i in range(feat.shape[1]):
-        colors = feat[:, i:i+1].repeat(1, 3)
-        rendered_image, rendered_alphas, meta = gsplat.rendering.rasterization(
-            means,
-            quats, 
-            scales[:, :3] * scaling_modifier, 
-            opacity.squeeze(1),
-            colors,
-            w2c.transpose(1, 2),
-            K,
-            int(W * resolution_scaling_factor),
-            int(H * resolution_scaling_factor),
-            render_mode="RGB+D",
-            packed=False
-        )
-        rendered_depth = rendered_image.squeeze(0)[..., 3:4].permute(2, 0, 1)
-        rendered_image = rendered_image.squeeze(0)[..., :3].permute(2, 0, 1)
-        rendered_alphas = rendered_alphas.squeeze(0).permute(2, 0, 1)
-        
-        if len(image_row_list) == num_per_row:
-            image_list.append(torch.cat(image_row_list, dim=2))
-            image_row_list = []
-        image_row_list.append(rendered_image)
+    C = feat.shape[1]
+    if antialias:
+        rasterize_mode = "antialiased"
+    else:
+        rasterize_mode = "classic"
+    rendered_image, rendered_alphas, meta = gsplat.rendering.rasterization(
+        means,
+        quats, 
+        scales[:, :3] * scaling_modifier, 
+        opacity.squeeze(1),
+        feat,
+        w2c.transpose(1, 2),
+        K,
+        W, 
+        H, 
+        render_mode="RGB+D",
+        packed=False, 
+        rasterize_mode=rasterize_mode
+    )
 
-    if len(image_row_list) > 0:
-        image_list.append(torch.cat(image_row_list, dim=2))
-    image_list = torch.cat(image_list, dim=1)
-    
-    return {"render": image_list, 
+    rendered_depth = rendered_image.squeeze(0)[..., C:C+1].permute(2, 0, 1)
+    rendered_image = rendered_image.squeeze(0)[..., :C].permute(2, 0, 1)
+    rendered_alphas = rendered_alphas.squeeze(0).permute(2, 0, 1)
+
+    num_per_row = 8
+    channels, height, width = rendered_image.shape
+    assert channels == C
+    image_list = rendered_image.reshape(num_per_row, -1, height, width)
+    image_list = einops.rearrange(image_list, 'n1 n2 h w -> (n1 h) (n2 w)')
+    image_list = image_list.unsqueeze(0)
+    return {"render": image_list,
             "alpha": rendered_alphas,
             "depth": rendered_depth}
+
+
+
+def render_gsplat_xyzonly(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None, absgrad=False, override_training=False, resolution_scaling_factor=1.0, interpolation=False, scaledown_ratio=None, antialias=False):
+    """
+    Render the scene. 
+    
+    Background tensor (bg_color) must be on GPU!
+    """
+    xyz, color, opacity, scaling, rot = generate_neural_gaussians(viewpoint_camera, pc, visible_mask, is_training=False, interpolation=interpolation, scaledown_ratio=scaledown_ratio)
+
+    color = color.detach().clone()
+    opacity = opacity.detach().clone()
+    scaling = scaling.detach().clone()
+    rot = rot.detach().clone()
+
+    # viewpoint attributes
+    fovx = viewpoint_camera.FoVx
+    fovy = viewpoint_camera.FoVy
+    W = int(viewpoint_camera.image_width * resolution_scaling_factor)
+    H = int(viewpoint_camera.image_height * resolution_scaling_factor)
+    fx = W / (2 * math.tan(fovx / 2))
+    fy = H / (2 * math.tan(fovy / 2))
+    K = torch.tensor([[fx, 0, W / 2], [0, fy, H / 2], [0, 0, 1]], device="cuda").unsqueeze(0)
+    w2c = viewpoint_camera.world_view_transform.unsqueeze(0)
+
+    # rendering all features
+    """
+    meta.keys() = {'camera_ids', 'gaussian_ids', 'radii', 'means2d', 'depths', 'conics', 'opacities', 'tile_width', 'tile_height', 'tiles_per_gauss', 'isect_ids', 'flatten_ids', 'isect_offsets', 'width', 'height', 'tile_size', 'n_cameras'}
+    """
+    if antialias:
+        rasterize_mode = "antialiased"
+    else:
+        rasterize_mode = "classic"
+    rendered_image, rendered_alphas, meta = gsplat.rendering.rasterization(
+        xyz,
+        rot,
+        scaling,
+        opacity.squeeze(1),
+        color,
+        w2c.transpose(1, 2),
+        K,
+        W,
+        H,
+        render_mode="RGB+D",
+        packed=False, 
+        absgrad=absgrad, 
+        rasterize_mode=rasterize_mode
+    )
+    rendered_depth = rendered_image.squeeze(0)[..., 3:4].permute(2, 0, 1)
+    rendered_image = rendered_image.squeeze(0)[..., :3].permute(2, 0, 1)
+    rendered_alphas = rendered_alphas.squeeze(0).permute(2, 0, 1)
+
+    visibility_filter = torch.zeros(xyz.shape[0], dtype=torch.bool, device=xyz.device)
+    visibility_filter[meta['gaussian_ids']] = True
+
+    return {"render": rendered_image,
+            "alpha": rendered_alphas,
+            "depth": rendered_depth,
+            }
