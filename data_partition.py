@@ -155,6 +155,6 @@ if __name__ == "__main__":
 
     num_blocks = args.num_blocks
 
-    np.save(os.path.join(args.source_path, f"data_partitions/camera_mask.npy"), camera_mask)
+    np.save(os.path.join(args.source_path, f"data_partitions", f"block{num_blocks}_ssim{ssim_threshold}.npy"), camera_mask)
 
     print("### Block partitioning finished.")
