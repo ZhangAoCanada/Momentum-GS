@@ -691,6 +691,7 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
                 "rot_loss": rot_loss,
                 "scaling_loss": scaling_loss,
                 "opacity_loss": opacity_loss,
+                "xyz": xyz.detach().clone(),
                 }
     else:
         return {"render": rendered_image,
@@ -698,6 +699,7 @@ def render_with_consistency_loss_gsplat(viewpoint_camera, pc : GaussianModel, mo
                 "viewspace_points": meta, 
                 "visibility_filter" : meta['radii'] > 0,
                 "radii": meta['radii'],
+                "xyz": xyz.detach().clone(),
                 }
 
 

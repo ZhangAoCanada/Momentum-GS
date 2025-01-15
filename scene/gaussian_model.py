@@ -23,6 +23,7 @@ from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from utils.distributed_utils import get_rank
 from scene.embedding import Embedding
+import math
 
 
 class GaussianModel:
@@ -92,6 +93,10 @@ class GaussianModel:
         self.offset_denom = torch.empty(0)
 
         self.anchor_demon = torch.empty(0)
+
+        #########################################
+        self.offset_scale = torch.empty(0)
+        #########################################
                 
         self.optimizer = None
         self.percent_dense = 0
@@ -299,6 +304,9 @@ class GaussianModel:
 
         self.offset_gradient_accum = torch.zeros((self.get_anchor.shape[0]*self.n_offsets, 1), device="cuda")
         self.offset_denom = torch.zeros((self.get_anchor.shape[0]*self.n_offsets, 1), device="cuda")
+        ################################################################
+        self.offset_scale = torch.ones((self.get_anchor.shape[0]*self.n_offsets, 1), device="cuda") * 1e6
+        ################################################################
         self.anchor_demon = torch.zeros((self.get_anchor.shape[0], 1), device="cuda")
         
         if self.use_feat_bank:
@@ -733,6 +741,10 @@ class GaussianModel:
                                            dtype=torch.int32, 
                                            device=self.offset_denom.device)
         self.offset_denom = torch.cat([self.offset_denom, padding_offset_demon], dim=0)
+        #################################################################
+        padding_offset_scale = torch.ones([self.get_anchor.shape[0]*self.n_offsets - self.offset_scale.shape[0], 1], device=self.offset_scale.device) * 1e6
+        self.offset_scale = torch.cat([self.offset_scale, padding_offset_scale], dim=0)
+        #################################################################
 
         self.offset_gradient_accum[offset_mask] = 0
         padding_offset_gradient_accum = torch.zeros([self.get_anchor.shape[0]*self.n_offsets - self.offset_gradient_accum.shape[0], 1],
@@ -750,6 +762,13 @@ class GaussianModel:
         offset_denom = offset_denom.view([-1, 1])
         del self.offset_denom
         self.offset_denom = offset_denom
+        #################################################################
+        offset_scale = self.offset_scale.view([-1, self.n_offsets])[~prune_mask]
+        offset_scale = offset_scale.view([-1, 1])
+        del self.offset_scale
+        self.offset_scale = offset_scale
+        #################################################################
+
 
         offset_gradient_accum = self.offset_gradient_accum.view([-1, self.n_offsets])[~prune_mask]
         offset_gradient_accum = offset_gradient_accum.view([-1, 1])
@@ -777,6 +796,32 @@ class GaussianModel:
     #################################################################
     #################################################################
     #################################################################
+    def update_offset_scale(self, xyz, viewpoint_cam, voxel_visible_mask, offset_selection_mask, visibility_filter):
+        anchor_visible_mask = voxel_visible_mask.unsqueeze(dim=1).repeat([1, self.n_offsets]).view(-1)
+        combine_mask = torch.zeros_like(self.offset_scale, dtype=torch.bool).squeeze(dim=1)
+        combine_mask[anchor_visible_mask] = offset_selection_mask
+        # temp_mask = combine_mask.clone()
+        # combine_mask[temp_mask] = visibility_filter
+
+        fovx = viewpoint_cam.FoVx
+        fovy = viewpoint_cam.FoVy
+        # W = int(viewpoint_cam.image_width * resolution_scaling_factor)
+        # H = int(viewpoint_cam.image_height * resolution_scaling_factor)
+        W = int(viewpoint_cam.image_width)
+        H = int(viewpoint_cam.image_height)
+        fx = W / (2 * math.tan(fovx / 2))
+        fy = H / (2 * math.tan(fovy / 2))
+        w2c = viewpoint_cam.world_view_transform.transpose(0, 1)
+
+        xyz = torch.cat([xyz, torch.ones([xyz.shape[0], 1], device='cuda')], dim=1)
+        xyz_w2c = torch.matmul(w2c, xyz.transpose(0, 1)).transpose(0, 1)
+        xyz_w2c = xyz_w2c[:, :3] / xyz_w2c[:, 3:]
+        z = xyz_w2c[:, 2]
+        # voxel_stride = torch.round(z / fx / self.voxel_size) + 1
+        voxel_stride = z / fx 
+        self.offset_scale[combine_mask] = torch.min(self.offset_scale[combine_mask], voxel_stride.unsqueeze(dim=1).float())
+        return self.offset_scale[combine_mask].detach().clone().squeeze()
+
     def update_anchor(self, residual_gaussians):
         d = {
             "anchor": residual_gaussians._anchor,
@@ -810,6 +855,11 @@ class GaussianModel:
                                            device=self.offset_denom.device)
         self.offset_denom = torch.cat([self.offset_denom, padding_offset_demon], dim=0)
 
+        ##################################################################
+        padding_offset_scale = torch.ones([self.get_anchor.shape[0]*self.n_offsets - self.offset_scale.shape[0], 1], device=self.offset_scale.device) * 1e6
+        self.offset_scale = torch.cat([self.offset_scale, padding_offset_scale], dim=0)
+        ##################################################################
+
         padding_offset_gradient_accum = torch.zeros([self.get_anchor.shape[0]*self.n_offsets - self.offset_gradient_accum.shape[0], 1],
                                            dtype=torch.int32, 
                                            device=self.offset_gradient_accum.device)
@@ -834,6 +884,12 @@ class GaussianModel:
         offset_denom = offset_denom.view([-1, 1])
         del self.offset_denom
         self.offset_denom = offset_denom
+        #################################################################
+        offset_scale = self.offset_scale.view([-1, self.n_offsets])[~prune_mask]
+        offset_scale = offset_scale.view([-1, 1])
+        del self.offset_scale
+        self.offset_scale = offset_scale
+        #################################################################
 
         offset_gradient_accum = self.offset_gradient_accum.view([-1, self.n_offsets])[~prune_mask]
         offset_gradient_accum = offset_gradient_accum.view([-1, 1])
@@ -865,6 +921,12 @@ class GaussianModel:
         offset_denom = offset_denom.view([-1, 1])
         del self.offset_denom
         self.offset_denom = offset_denom
+        #################################################################
+        offset_scale = self.offset_scale.view([-1, self.n_offsets])[~prune_mask]
+        offset_scale = offset_scale.view([-1, 1])
+        del self.offset_scale
+        self.offset_scale = offset_scale
+        #################################################################
 
         offset_gradient_accum = self.offset_gradient_accum.view([-1, self.n_offsets])[~prune_mask]
         offset_gradient_accum = offset_gradient_accum.view([-1, 1])

@@ -45,7 +45,8 @@ class PointInterpolation(nn.Module):
         if stride is None:
             voxel_size = self.args.voxel_size * self.voxel_stride
         else:
-            voxel_size = self.args.voxel_size * stride * self.voxel_stride
+            # voxel_size = self.args.voxel_size * stride * self.voxel_stride
+            voxel_size = self.args.voxel_size * stride
         data = torch.unique(torch.round(data/voxel_size)*voxel_size, dim=0)
         return data
     
@@ -57,9 +58,13 @@ class PointInterpolation(nn.Module):
         return
     
     def depth_mask(self, rendered_depth, gt_depth):
-        depth_diff = torch.abs(rendered_depth - gt_depth) / gt_depth.max()
-        # mask = torch.clamp(depth_diff, 0., 1.)
+        # depth_diff = torch.abs(rendered_depth - gt_depth) / gt_depth.max()
+        depth_diff = torch.abs(rendered_depth - gt_depth)
         mask = depth_diff
+        ### NOTE: no too far points ###
+        farpoint_mask = gt_depth > 3
+        mask = torch.where(farpoint_mask, 0., mask)
+        ###############################
         mask = torch.where(mask > self.depth_threshold, 1., 0.).bool()
         return mask
     
@@ -196,8 +201,7 @@ class PointInterpolation(nn.Module):
             scaling_reg = scaling.prod(dim=1).mean()
             loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * ssim_loss + 0.01 * scaling_reg
 
-            Ll1_depth = l1_loss(depth, gt_depth) * (1 - self.opt.lambda_dssim)
-            # Ll1_depth = l1_loss(depth, gt_depth) * (1 - self.opt.lambda_dssim) * 0.1
+            Ll1_depth = l1_loss(depth, gt_depth) * (1 - self.opt.lambda_dssim) * 0.1
             loss += Ll1_depth
             
             loss.backward()
