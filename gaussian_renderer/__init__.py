@@ -263,6 +263,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
+    ############### NOTE: for rendering depth map #############
+    w2c = viewpoint_camera.world_view_transform.transpose(0, 1)
+    xyz_h = torch.cat([xyz, torch.ones_like(xyz[:, 0:1])], dim=1)
+    xyz2c = torch.matmul(w2c, xyz_h.transpose(0, 1)).transpose(0, 1)
+    z2c = xyz2c[:, 2]
+    color = torch.cat([color, z2c.unsqueeze(1)], dim=1)
+    bg_color = torch.cat([bg_color, torch.tensor(bg_color[0], device=bg_color.device).unsqueeze(0)], dim=0)
+    ###########################################################
+
     raster_settings = GaussianRasterizationSettings(
         image_height=int(viewpoint_camera.image_height * resolution_scaling_factor),
         image_width=int(viewpoint_camera.image_width * resolution_scaling_factor),
@@ -291,20 +300,29 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         rotations = rot,
         cov3D_precomp = None)
     
+    ############### NOTE: for rendering depth map #############
+    rendered_depth = rendered_image[3:4, ...]
+    rendered_image = rendered_image[:3, ...]
+    ###########################################################
+    
     if is_training:
         return {"render": rendered_image,
+                "depth": rendered_depth,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
                 "selection_mask": mask,
                 "neural_opacity": neural_opacity,
                 "scaling": scaling,
+                "xyz": xyz.detach().clone(),
                 }
     else:
         return {"render": rendered_image,
+                "depth": rendered_depth,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
+                "xyz": xyz.detach().clone(),
                 }
 
 
@@ -342,6 +360,15 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
+    ############### NOTE: for rendering depth map #############
+    w2c = viewpoint_camera.world_view_transform.transpose(0, 1)
+    xyz_h = torch.cat([xyz, torch.ones_like(xyz[:, 0:1])], dim=1)
+    xyz2c = torch.matmul(w2c, xyz_h.transpose(0, 1)).transpose(0, 1)
+    z2c = xyz2c[:, 2]
+    color = torch.cat([color, z2c.unsqueeze(1)], dim=1)
+    bg_color = torch.cat([bg_color, torch.tensor(bg_color[0], device=bg_color.device).unsqueeze(0)], dim=0)
+    ###########################################################
+
     raster_settings = GaussianRasterizationSettings(
         image_height=int(viewpoint_camera.image_height * resolution_scaling_factor),
         image_width=int(viewpoint_camera.image_width * resolution_scaling_factor),
@@ -370,9 +397,15 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
         rotations = rot,
         cov3D_precomp = None)
     
+    ############### NOTE: for rendering depth map #############
+    rendered_depth = rendered_image[3:4, ...]
+    rendered_image = rendered_image[:3, ...]
+    ###########################################################
+
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     if is_training:
         return {"render": rendered_image,
+                "depth": rendered_depth,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
@@ -384,12 +417,15 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
                 "rot_loss": rot_loss,
                 "scaling_loss": scaling_loss,
                 "opacity_loss": opacity_loss,
+                "xyz": xyz.detach().clone(),
                 }
     else:
         return {"render": rendered_image,
+                "depth": rendered_depth,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
+                "xyz": xyz.detach().clone(),
                 }
     
 
@@ -597,6 +633,7 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
                 "selection_mask": mask, 
                 "neural_opacity": neural_opacity,
                 "scaling": scaling,
+                "xyz": xyz.detach().clone(),
                 }
     else:
         return {"render": rendered_image,
@@ -606,6 +643,7 @@ def render_gsplat(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
                 "viewspace_points": meta, 
                 "visibility_filter" : meta["radii"] > 0,
                 "radii": meta["radii"],
+                "xyz": xyz.detach().clone(),
                 }
 
 

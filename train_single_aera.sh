@@ -5,7 +5,7 @@ function rand(){
     echo $(($num%$max+$min))  
 }
 
-gpu_list=3
+gpu_list=1
 gpu_num=1
 addr_random=221
 master_port_random=23959
@@ -18,14 +18,15 @@ custom_test=bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/test
 # resolution=1
 images=input_cached
 resolution=-1
-logdir=mc-1gpu-smallaera-aerial-pretrained+freqfilter+interpolation
+# logdir=mc-1gpu-smallaera-aerial-pretrained+freqfilter+interpolation
+logdir=mc-1gpu-smallaera-aerial-clean
 partition_name=block8_ssim0.05
 block_num=8
 consistency_loss_weight=50
 checkpoint_tmp_dir=data/Momentum-GS/tmp/matrixcity/
 adaptive_sigma=9.0
-# time=wogsplat-densification-pointinterpolate-depth-color-1000-1-train200-depth1
-time=gsplat-absgrad-depth1-l2-densification-pointinterpolate-depthdirect0.1-color0.1-1000-10-depth0.1-farconstrain3-scalingreg1e-2-minreg1e-1-bbg
+# time=gsplat-absgrad-depth1-l2-densification-pointinterpolate-depthdirect0.1-color0.1-1000-10-depth0.1-farconstrain3-scalingreg1e-2-minreg1e-1-bbg
+time=wogsplat-depth-l20.1
 # time=$(date "+%Y-%m-%d_%H:%M:%S")
 port=$(rand 10000 30000)
 addr_random=$(rand 0 255)

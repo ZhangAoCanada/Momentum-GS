@@ -816,11 +816,15 @@ class GaussianModel:
         xyz = torch.cat([xyz, torch.ones([xyz.shape[0], 1], device='cuda')], dim=1)
         xyz_w2c = torch.matmul(w2c, xyz.transpose(0, 1)).transpose(0, 1)
         xyz_w2c = xyz_w2c[:, :3] / xyz_w2c[:, 3:]
-        z = xyz_w2c[:, 2]
-        # voxel_stride = torch.round(z / fx / self.voxel_size) + 1
-        voxel_stride = z / fx 
-        self.offset_scale[combine_mask] = torch.min(self.offset_scale[combine_mask], voxel_stride.unsqueeze(dim=1).float())
+
+        x, y, z = xyz_w2c[:, 0], xyz_w2c[:, 1], xyz_w2c[:, 2]
+        x_width = torch.ceil(x / z * fx + W / 2)
+        x_step = (x_width + 1 - W / 2) * z / fx
+        x_step = x_step - x
+        x_step = x_step.unsqueeze(dim=1).float()
+        self.offset_scale[combine_mask] = torch.min(self.offset_scale[combine_mask], x_step)
         return self.offset_scale[combine_mask].detach().clone().squeeze()
+
 
     def update_anchor(self, residual_gaussians):
         d = {

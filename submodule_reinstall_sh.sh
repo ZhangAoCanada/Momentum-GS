@@ -1,0 +1,1 @@
+/home/ZHANGAo_2024/.conda/envs/momentum-gs/bin/pip install submodules/diff-gaussian-rasterization/ --force-reinstall
