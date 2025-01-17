@@ -60,7 +60,7 @@ class FrequencyModifier(nn.Module):
                 "freq_counts": freq_counts}
 
 
-    def filter_smooth(self, freq, freq_scale=10., threshold=0.9, min_freq=1000):
+    def filter_smooth(self, freq, freq_scale=10., threshold=0.8, min_freq=1000):
         frequency, freq_unique, freq_counts = freq["freq"], freq["freq_unique"], freq["freq_counts"]
         min_freq_index = int(min_freq // freq_scale)
         min_index = torch.argmin(torch.abs(freq_unique - min_freq_index))

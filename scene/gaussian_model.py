@@ -823,7 +823,7 @@ class GaussianModel:
         x_step = x_step - x
         x_step = x_step.unsqueeze(dim=1).float()
         self.offset_scale[combine_mask] = torch.min(self.offset_scale[combine_mask], x_step)
-        return self.offset_scale[combine_mask].detach().clone().squeeze()
+        return self.offset_scale[combine_mask].clone().detach().squeeze()
 
 
     def update_anchor(self, residual_gaussians):
@@ -981,7 +981,7 @@ class GaussianModel:
 
     
     def scale_down(self, scaledown_ratio):
-        mask = self.get_scaling[:, 3:].detach().clone().max(dim=1).values // self.voxel_size > 1000
+        mask = self.get_scaling[:, 3:].clone().detach().max(dim=1).values // self.voxel_size > 1000
         self._scaling[mask][:, 3:] = self._scaling[mask][:, 3:] * scaledown_ratio
     #################################################################
     #################################################################

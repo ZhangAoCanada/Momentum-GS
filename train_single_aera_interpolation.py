@@ -297,8 +297,14 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                 # ssim_loss = (1.0 - ssim(image, gt_image))
                 # scaling_reg = scaling.prod(dim=1).mean()
                 # offset_scale_mask = offset_scale.squeeze() < 1000
-                # scaling_min_reg = l1_loss(scaling.min(dim=1).values[offset_scale_mask], offset_scale[offset_scale_mask])
-                # loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * ssim_loss + 1e-2 * scaling_reg + 0.1 * scaling_min_reg
+                # ### Choice: regularize minimal axies
+                # # scaling_min_reg = l1_loss(scaling.min(dim=1).values[offset_scale_mask], offset_scale[offset_scale_mask])
+                # ### Choice: regularize the 2nd largest axies who is smaller than the voxel resolution
+                # offset_scale_middle = scaling.topk(2, dim=1).values[:, -1]
+                # offset_scale_middle_mask = offset_scale_middle < scaling_reg
+                # combine_mask = offset_scale_mask & offset_scale_middle_mask
+                # scaling_min_reg = l1_loss(offset_scale_middle[combine_mask], offset_scale[combine_mask])
+                # loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * ssim_loss + 0.01 * scaling_reg + 0.1 * scaling_min_reg
                 ###############################################################
                 # Ll1 = l1_loss(image, gt_image)
                 # ssim_loss = (1.0 - ssim(image, gt_image))
@@ -316,8 +322,7 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                     #     # render_pkg_scaledown = render_gsplat(viewpoint_cam, gaussians, pipe, background, visible_mask=voxel_visible_mask, retain_grad=True,scaledown_ratio=ratio)
                     #     depth = render_pkg_scaledown["depth"]
                     #     gt_depth = gt_depth * render_pkg_scaledown["alpha"].detach().clone()
-                    Ll1_depth = l2_loss(depth, gt_depth) * (1 - opt.lambda_dssim) * 0.1
-                    # Ll1_depth = l1_loss(depth, gt_depth) * (1 - opt.lambda_dssim) * 0.1
+                    Ll1_depth = l2_loss(depth, gt_depth) * (1 - opt.lambda_dssim) * 0.05
                     loss += Ll1_depth
                 ###############################################################
                 ###############################################################
@@ -460,52 +465,52 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
                 ############################################################
                 ############################################################
                 ### NOTE: frequency modifier ###
-                # # if cur_iter < opt.update_from:
-                # #     freq_topk = 3000
+                # if cur_iter < opt.update_from:
+                #     freq_topk = 3000
                 # if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
                 #     with torch.no_grad():
-                #         frequency = freq.anchor_freq(gaussians, mode="anchor_scale")
+                #         frequency = freq.anchor_freq(gaussians, mode="anchor_offset")
                 #         frequency_filtered = freq.filter_freq_direct(frequency,  k=freq_topk)
                 #         freq.plot_freq_compare(frequency, frequency_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_compare.png"))
                 #         gaussians_prune_mask = ~frequency_filtered["freq_mask"]
                 #         gaussians.prune_anchor_withmask(gaussians_prune_mask)
                 #     freq_topk = freq_topk + 1000
                 ### NOTE: frequency modifier ###
-                # if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
-                #     with torch.no_grad():
-                #         anchorscale_freqscale = 1.
-                #         anchoroffset_freqscale = 2.
-                #         # freq_scale = freq.anchor_freq_smooth(gaussians, freq_scale=anchorscale_freqscale, mode="anchor_scale")
-                #         freq_offset = freq.anchor_freq_smooth(gaussians, freq_scale=anchoroffset_freqscale, mode="anchor_offset")
-                #         # freq_scale_filtered = freq.filter_smooth(freq_scale, freq_scale=anchorscale_freqscale)
-                #         freq_offset_filtered = freq.filter_smooth(freq_offset, freq_scale=anchoroffset_freqscale)
-                #         # freq.plot_freq_compare(freq_scale, freq_scale_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_scale.png"))
-                #         freq.plot_freq_compare(freq_offset, freq_offset_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_offset.png"))
-                #         ### NOTE: prune oversized ###
-                #         # freq_mask = torch.logical_and(freq_scale_filtered["freq_mask"], freq_offset_filtered["freq_mask"])
-                #         # gaussians_prune_mask = ~freq_mask
-                #         # gaussians.prune_anchor_withmask(gaussians_prune_mask)
-                #         ### NOTE: scale oversized ###
-                #         # gaussians.scale_anchor_withmaskratio(freq_scale_filtered['freq_mask'], freq_scale_filtered['freq_scale_ratio'], mode="anchor_scale")
-                #         gaussians.scale_anchor_withmaskratio(freq_offset_filtered['freq_mask'], freq_offset_filtered['freq_scale_ratio'], mode="anchor_offset")
-                #     freq_topk = freq_topk + 1000
+                if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
+                    with torch.no_grad():
+                        anchorscale_freqscale = 1.
+                        anchoroffset_freqscale = 2.
+                        freq_scale = freq.anchor_freq_smooth(gaussians, freq_scale=anchorscale_freqscale, mode="anchor_scale")
+                        freq_offset = freq.anchor_freq_smooth(gaussians, freq_scale=anchoroffset_freqscale, mode="anchor_offset")
+                        freq_scale_filtered = freq.filter_smooth(freq_scale, freq_scale=anchorscale_freqscale)
+                        freq_offset_filtered = freq.filter_smooth(freq_offset, freq_scale=anchoroffset_freqscale)
+                        freq.plot_freq_compare(freq_scale, freq_scale_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_scale.png"))
+                        freq.plot_freq_compare(freq_offset, freq_offset_filtered, os.path.join(freq_plot_dir, '{0:05d}'.format(cur_iter) + "_freq_offset.png"))
+                        ### NOTE: prune oversized ###
+                        # freq_mask = torch.logical_and(freq_scale_filtered["freq_mask"], freq_offset_filtered["freq_mask"])
+                        # gaussians_prune_mask = ~freq_mask
+                        # gaussians.prune_anchor_withmask(gaussians_prune_mask)
+                        ### NOTE: scale oversized ###
+                        gaussians.scale_anchor_withmaskratio(freq_scale_filtered['freq_mask'], freq_scale_filtered['freq_scale_ratio'], mode="anchor_scale")
+                        gaussians.scale_anchor_withmaskratio(freq_offset_filtered['freq_mask'], freq_offset_filtered['freq_scale_ratio'], mode="anchor_offset")
+                    freq_topk = freq_topk + 1000
                 ### NOTE: interpolation ###
-                # if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
-                #     torch.cuda.empty_cache()
-                #     # gaussian_interpolate = GaussianInterpolation(
-                #     #     dataset, scene, opt, pipe, gaussians, tb_writer,
-                #     #     depth_threshold=0.1, color_threshold=0.1, 
-                #     #     voxel_stride_portion=0.8, interpolate_interval=40, 
-                #     #     train_iterations=200
-                #     #     ) # interpolate_interval=10
-                #     gaussian_interpolate = PointInterpolation(
-                #         dataset, scene, opt, pipe, gaussians, tb_writer,
-                #         depth_threshold=0.1, color_threshold=0.1, 
-                #         voxel_stride_portion=0.8, interpolate_interval=10, 
-                #         # train_iterations=0
-                #         train_iterations=200
-                #         )
-                #     iterpolated = gaussian_interpolate(resolution_scaling=1, scaledown_ratio=1)
+                if cur_iter > opt.update_from and cur_iter < opt.update_until and cur_iter % 1000 == 0:
+                    torch.cuda.empty_cache()
+                    # gaussian_interpolate = GaussianInterpolation(
+                    #     dataset, scene, opt, pipe, gaussians, tb_writer,
+                    #     depth_threshold=0.1, color_threshold=0.1, 
+                    #     voxel_stride_portion=0.8, interpolate_interval=40, 
+                    #     train_iterations=200
+                    #     ) # interpolate_interval=10
+                    gaussian_interpolate = PointInterpolation(
+                        dataset, scene, opt, pipe, gaussians, tb_writer,
+                        depth_threshold=0.1, color_threshold=0.1, 
+                        voxel_stride_portion=0.8, interpolate_interval=10, 
+                        # train_iterations=0
+                        train_iterations=200
+                        )
+                    iterpolated = gaussian_interpolate(use_gsplat=render_with_gsplat, resolution_scaling=1, scaledown_ratio=1)
                     torch.cuda.empty_cache()
                 ############################################################
                 ############################################################

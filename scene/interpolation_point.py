@@ -9,7 +9,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 import math
 from random import randint
-from utils.loss_utils import l1_loss, ssim
+from utils.loss_utils import l1_loss, ssim, l2_loss
 from gaussian_renderer import prefilter_voxel, render, render_with_consistency_loss, prefilter_voxel_gsplat, render_gsplat, render_with_consistency_loss_gsplat, render_gsplat_xyzonly
 from scene.gaussian_interpolation_model import GaussianInterpolationModel
 import shutil
@@ -120,7 +120,7 @@ class PointInterpolation(nn.Module):
         points = points[:, :3]
         return points
 
-    def forward(self, debug=True, resolution_scaling=1, scaledown_ratio=1.):
+    def forward(self, use_gsplat=False, debug=True, resolution_scaling=1, scaledown_ratio=1.):
         bg_color = [1, 1, 1] if self.args.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
         viewpoint_stack = self.scene.getTrainCameras().copy()
@@ -149,8 +149,12 @@ class PointInterpolation(nn.Module):
 
             # render the trained gaussians
             with torch.no_grad():
-                voxel_visible_mask_trained = prefilter_voxel_gsplat(viewpoint_cam, self.trained_gaussians, self.pipe, background)
-                render_pkg_pretrained = render_gsplat(viewpoint_cam, self.trained_gaussians, self.pipe, background, visible_mask=voxel_visible_mask_trained, retain_grad=False, absgrad=True, resolution_scaling_factor=resolution_scaling)
+                if use_gsplat:
+                    voxel_visible_mask_trained = prefilter_voxel_gsplat(viewpoint_cam, self.trained_gaussians, self.pipe, background)
+                    render_pkg_pretrained = render_gsplat(viewpoint_cam, self.trained_gaussians, self.pipe, background, visible_mask=voxel_visible_mask_trained, retain_grad=False, absgrad=True, resolution_scaling_factor=resolution_scaling)
+                else:
+                    voxel_visible_mask_trained = prefilter_voxel(viewpoint_cam, self.trained_gaussians, self.pipe, background)
+                    render_pkg_pretrained = render(viewpoint_cam, self.trained_gaussians, self.pipe, background, visible_mask=voxel_visible_mask_trained, retain_grad=False, resolution_scaling_factor=resolution_scaling)
                 rendered_image, rendered_depth = render_pkg_pretrained["render"], render_pkg_pretrained["depth"]
                 voxel_visible_mask_trained = voxel_visible_mask_trained.detach()
                 rendered_image = rendered_image.detach()
@@ -189,11 +193,13 @@ class PointInterpolation(nn.Module):
             # retain_grad = (iteration < self.opt.update_until and iteration >= 0)
             retain_grad = True
             assert self.gaussians.freeze_all_mlp
-            render_pkg = render_gsplat(viewpoint_cam, self.gaussians, self.pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad, absgrad=False, interpolation=True, resolution_scaling_factor=resolution_scaling, override_training=True)
+            if use_gsplat:
+                render_pkg = render_gsplat(viewpoint_cam, self.gaussians, self.pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad, absgrad=False, interpolation=True, resolution_scaling_factor=resolution_scaling, override_training=True)
+            else:
+                render_pkg = render(viewpoint_cam, self.gaussians, self.pipe, background, visible_mask=voxel_visible_mask, retain_grad=retain_grad, interpolation=True, resolution_scaling_factor=resolution_scaling, override_training=True)
             
             image, viewspace_point_tensor, visibility_filter, offset_selection_mask, radii, scaling, opacity = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["selection_mask"], render_pkg["radii"], render_pkg["scaling"], render_pkg["neural_opacity"]
 
-            alpha = render_pkg["alpha"]
             depth = render_pkg["depth"]
 
             Ll1 = l1_loss(image, gt_image)
@@ -201,7 +207,7 @@ class PointInterpolation(nn.Module):
             scaling_reg = scaling.prod(dim=1).mean()
             loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * ssim_loss + 0.01 * scaling_reg
 
-            Ll1_depth = l1_loss(depth, gt_depth) * (1 - self.opt.lambda_dssim) * 0.1
+            Ll1_depth = l2_loss(depth, gt_depth) * (1 - self.opt.lambda_dssim) * 0.1
             loss += Ll1_depth
             
             loss.backward()

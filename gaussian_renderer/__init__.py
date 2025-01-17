@@ -237,13 +237,16 @@ def generate_neural_gaussians_and_momentum_gaussians(viewpoint_camera, pc : Gaus
         return xyz, color, opacity, scaling, rot
     
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None, resolution_scaling_factor=1.0, interpolation=False, scaledown_ratio=None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, visible_mask=None, retain_grad=False, xyz=None, color=None, opacity=None, scaling=None, rot=None, resolution_scaling_factor=1.0, interpolation=False, scaledown_ratio=None, override_training=False):
     """
     Render the scene. 
     
     Background tensor (bg_color) must be on GPU!
     """
     is_training = pc.get_color_mlp.training
+
+    if override_training:
+        is_training = override_training
 
     if xyz is None:
         if is_training:
@@ -269,7 +272,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     xyz2c = torch.matmul(w2c, xyz_h.transpose(0, 1)).transpose(0, 1)
     z2c = xyz2c[:, 2]
     color = torch.cat([color, z2c.unsqueeze(1)], dim=1)
-    bg_color = torch.cat([bg_color, torch.tensor(bg_color[0], device=bg_color.device).unsqueeze(0)], dim=0)
+    bg_color = torch.cat([bg_color, torch.tensor([0.], device=bg_color.device)], dim=0)
     ###########################################################
 
     raster_settings = GaussianRasterizationSettings(
@@ -366,7 +369,7 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
     xyz2c = torch.matmul(w2c, xyz_h.transpose(0, 1)).transpose(0, 1)
     z2c = xyz2c[:, 2]
     color = torch.cat([color, z2c.unsqueeze(1)], dim=1)
-    bg_color = torch.cat([bg_color, torch.tensor(bg_color[0], device=bg_color.device).unsqueeze(0)], dim=0)
+    bg_color = torch.cat([bg_color, torch.tensor([0.], device=bg_color.device)], dim=0)
     ###########################################################
 
     raster_settings = GaussianRasterizationSettings(
