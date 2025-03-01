@@ -5,7 +5,7 @@ function rand(){
     echo $(($num%$max+$min))  
 }
 
-gpu_list=2
+gpu_list=1
 gpu_num=1
 addr_random=221
 master_port_random=23959
@@ -14,13 +14,13 @@ data=bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/train
 custom_test=bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/test
 images=input_cached
 resolution=-1
-logdir=debugging
+logdir=debugging3
 partition_name=block8_ssim0.05
 block_num=8
 consistency_loss_weight=50
 checkpoint_tmp_dir=data/Momentum-GS/tmp/continous/
 adaptive_sigma=9.0
-time=debugging3
+time=debugging7
 # time=$(date "+%Y-%m-%d_%H:%M:%S")
 port=$(rand 10000 30000)
 addr_random=$(rand 0 255)

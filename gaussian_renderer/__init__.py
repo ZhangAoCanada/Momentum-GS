@@ -17,7 +17,7 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from scene.gaussian_model import GaussianModel
 
 import gsplat
-
+from utils.general_utils import build_rotation
 
 def generate_neural_gaussians(viewpoint_camera, pc : GaussianModel, visible_mask=None, is_training=False, interpolation=False, scaledown_ratio=None):
     ## view frustum filtering for acceleration    
@@ -273,6 +273,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     z2c = xyz2c[:, 2]
     color = torch.cat([color, z2c.unsqueeze(1)], dim=1)
     bg_color = torch.cat([bg_color, torch.tensor([0.], device=bg_color.device)], dim=0)
+    ############## NOTE: for rendering normal map #############
+    norm_axis = torch.argmin(scaling, dim=1)
+    norm = torch.zeros_like(scaling)
+    norm[torch.arange(scaling.shape[0]), norm_axis] = 1
+    rot_mat = build_rotation(rot)
+    w2c_rot = torch.matmul(w2c[:3, :3].unsqueeze(0), rot_mat)
+    norm2c = torch.matmul(w2c_rot, norm.unsqueeze(-1)).squeeze(-1)
+    color = torch.cat([color, norm2c], dim=1)
+    bg_color = torch.cat([bg_color, torch.tensor([0., 0., 0.], device=bg_color.device)], dim=0)
     ###########################################################
 
     raster_settings = GaussianRasterizationSettings(
@@ -304,6 +313,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         cov3D_precomp = None)
     
     ############### NOTE: for rendering depth map #############
+    rendered_normal = rendered_image[4:, ...]
     rendered_depth = rendered_image[3:4, ...]
     rendered_image = rendered_image[:3, ...]
     ###########################################################
@@ -311,6 +321,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     if is_training:
         return {"render": rendered_image,
                 "depth": rendered_depth,
+                "normal": rendered_normal, 
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
@@ -322,6 +333,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     else:
         return {"render": rendered_image,
                 "depth": rendered_depth,
+                "normal": rendered_normal, 
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
@@ -370,6 +382,15 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
     z2c = xyz2c[:, 2]
     color = torch.cat([color, z2c.unsqueeze(1)], dim=1)
     bg_color = torch.cat([bg_color, torch.tensor([0.], device=bg_color.device)], dim=0)
+    ############## NOTE: for rendering normal map #############
+    norm_axis = torch.argmin(scaling, dim=1)
+    norm = torch.zeros_like(scaling)
+    norm[torch.arange(scaling.shape[0]), norm_axis] = 1
+    rot_mat = build_rotation(rot)
+    w2c_rot = torch.matmul(w2c[:3, :3].unsqueeze(0), rot_mat)
+    norm2c = torch.matmul(w2c_rot, norm.unsqueeze(-1)).squeeze(-1)
+    color = torch.cat([color, norm2c], dim=1)
+    bg_color = torch.cat([bg_color, torch.tensor([0., 0., 0.], device=bg_color.device)], dim=0)
     ###########################################################
 
     raster_settings = GaussianRasterizationSettings(
@@ -401,6 +422,7 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
         cov3D_precomp = None)
     
     ############### NOTE: for rendering depth map #############
+    rendered_normal = rendered_image[4:, ...]
     rendered_depth = rendered_image[3:4, ...]
     rendered_image = rendered_image[:3, ...]
     ###########################################################
@@ -409,6 +431,7 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
     if is_training:
         return {"render": rendered_image,
                 "depth": rendered_depth,
+                "normal": rendered_normal, 
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,
@@ -425,6 +448,7 @@ def render_with_consistency_loss(viewpoint_camera, pc : GaussianModel, momentum_
     else:
         return {"render": rendered_image,
                 "depth": rendered_depth,
+                "normal": rendered_normal, 
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii,

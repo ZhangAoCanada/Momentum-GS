@@ -208,6 +208,7 @@ class PointInterpolation(nn.Module):
             loss = (1.0 - self.opt.lambda_dssim) * Ll1 + self.opt.lambda_dssim * ssim_loss + 0.01 * scaling_reg
 
             Ll1_depth = l2_loss(depth, gt_depth) * (1 - self.opt.lambda_dssim) * 0.1
+            # Ll1_depth = l2_loss(depth, gt_depth) * (1 - self.opt.lambda_dssim)
             loss += Ll1_depth
             
             loss.backward()

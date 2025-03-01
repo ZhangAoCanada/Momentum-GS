@@ -126,7 +126,7 @@ class OptimizationParams(ParamGroup):
         self.position_lr_init = 0.0
         self.position_lr_final = 0.0
         self.position_lr_delay_mult = 0.01
-        self.position_lr_max_steps = 30_000 # 30_000
+        self.position_lr_max_steps = 60_000 # 30_000
         
         self.offset_lr_init = 0.01
         self.offset_lr_final = 0.0001

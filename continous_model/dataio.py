@@ -520,6 +520,9 @@ class PointCloudPlus(Dataset):
         else:
             coord_max = np.amax(coords, axis=0, keepdims=True)
             coord_min = np.amin(coords, axis=0, keepdims=True)
+        
+        self.lower_bound = torch.tensor(coord_min)
+        self.upper_bound = torch.tensor(coord_max)
 
         self.coords = (coords - coord_min) / (coord_max - coord_min)
         self.coords -= 0.5
@@ -561,11 +564,11 @@ class PointCloudPlus(Dataset):
 
 
 class ViewPointPostProcess(Dataset):
-    def __init__(self, points, batch_size, bound_extend_ratio=0.01, keep_aspect_ratio=False):
+    def __init__(self, points, batch_size, bound_extend_ratio=[1., 1., 1.], keep_aspect_ratio=False):
         super().__init__()
         assert points.ndim == 2 and points.shape[1] == 3, "Points should be of shape (N, 3)"
         self.batch_size = int(batch_size)
-        self.bound_extend_ratio = bound_extend_ratio
+        self.bound_extend_ratio = torch.tensor(bound_extend_ratio) if isinstance(bound_extend_ratio, list) else bound_extend_ratio
         self.find_bound(points, keep_aspect_ratio)
 
 
@@ -580,10 +583,12 @@ class ViewPointPostProcess(Dataset):
             upper_bound = torch.max(points, dim=0, keepdim=True).values
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
-        # return
+        # bound_extend = (upper_bound - lower_bound) * self.bound_extend_ratio
+        # self.lower_bound = lower_bound - bound_extend
+        # self.upper_bound = upper_bound + bound_extend
         bound_extend = (upper_bound - lower_bound) * self.bound_extend_ratio
-        self.lower_bound = lower_bound - bound_extend
-        self.upper_bound = upper_bound + bound_extend
+        self.lower_bound = self.mean - bound_extend
+        self.upper_bound = self.mean + bound_extend
 
 
     def normalize_points(self, points):
@@ -636,7 +641,7 @@ class ViewPointPostProcess(Dataset):
         return points, normals
 
 
-    def propogate_data(self, depth_map, normal_map, color_image, opacities, viewpoint_cam):
+    def propogate_data(self, depth_map, normal_map, color_image, opacities, viewpoint_cam, voxelize=True):
         points, mask = self.depth2points(depth_map, viewpoint_cam)
         normals = normal_map.permute(1, 2, 0).view(-1, 3)[mask]
         colors = color_image.permute(1, 2, 0).view(-1, 3)[mask]
@@ -646,6 +651,24 @@ class ViewPointPostProcess(Dataset):
         # normalization
         points = self.normalize_points(points)
         colors = colors * 2. - 1.
+
+        # remove out-of-bound points
+        mask = (points >= -1) & (points <= 1)
+        mask = mask.all(dim=1)
+        points = points[mask]
+        normals = normals[mask]
+        colors = colors[mask]
+        opacity = opacity[mask]
+
+        if points.shape[0] < 0.1 * self.batch_size:
+            return None, None
+        
+        if voxelize:
+            points = points // 0.001 * 0.001
+            points, indices = torch.unique(points, return_inverse=True, dim=0)
+            normals = normals[indices]
+            colors = colors[indices]
+            opacity = opacity[indices]
 
         points_size = points.shape[0]
         if points_size > self.batch_size:

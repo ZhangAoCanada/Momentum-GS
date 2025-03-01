@@ -249,6 +249,11 @@ class PosEncodingFFT(nn.Module):
         elif mode == "multiple":
             self.num_frequencies = 3
             self.out_dim = self.num_frequencies * in_features * 2
+        elif mode == "gaussian":
+            self.out_dim = 64
+            torch.manual_seed(8)
+            self.B = torch.randn(self.out_dim // 2, in_features).cuda()
+            self.B_scale = 1
         else:
             raise NotImplementedError
 
@@ -268,12 +273,19 @@ class PosEncodingFFT(nn.Module):
         x_proj = (2. * torch.pi * coords).float()
         return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], -1)
     
+    def forward_gaussians(self, coords):
+        x_proj = (2. * torch.pi * coords).float()
+        x_proj = x_proj @ (self.B.T * self.B_scale)
+        return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], -1)
+    
     def forward(self, coords):
         coords = (coords + 1) / 2  # [-1, 1] -> [0, 1]
         if self.mode == "simple":
             coords_ = self.forward_simple(coords)
         elif self.mode == "multiple":
             coords_ = self.forward_multiple(coords)
+        elif self.mode == "gaussian":
+            coords_ = self.forward_gaussians(coords)
         return coords_
 #####################################################################
 ######################################################################

@@ -123,6 +123,11 @@ def show_gaussians(args, scene, freq, name, iteration, views, gaussians, pipelin
         gt_depth = gt_depth / gt_depth.max()
         rendering_depth_with_diff = torch.cat([gt_depth, rendering_depth, depth_diff], dim=1)
 
+        rendering_normal = render_pkg["normal"]
+        normal_diff = torch.abs(rendering_normal - normal).mean(dim=0, keepdim=True).repeat(3, 1, 1)
+        normal_diff = torch.where(normal_diff > 0.1, 1., 0.)
+        rendering_normal = torch.cat([normal, rendering_normal, normal_diff], dim=1)
+
         ################################################################
         # interpolation = PointInterpolation(args, scene, pipeline, gaussians, tb_writer=None, depth_threshold=0.1, color_threshold=0.1, voxel_stride_portion=0.8, interpolate_interval=1, train_iterations=200)
         # interpolation()
@@ -137,6 +142,7 @@ def show_gaussians(args, scene, freq, name, iteration, views, gaussians, pipelin
             torchvision.utils.save_image(rendering_feat_depth, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_depth.png"))
             # torchvision.utils.save_image(rendering_feat_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_feat_alpha.png"))
         torchvision.utils.save_image(rendering_depth_with_diff, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_depth.png"))
+        torchvision.utils.save_image(rendering_normal, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_normal.png"))
         # torchvision.utils.save_image(rendering_alpha, os.path.join(save_dir, '{0:05d}'.format(idx) + "_render_alpha.png"))
         torch.cuda.empty_cache()
 

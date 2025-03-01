@@ -5,7 +5,7 @@ function rand(){
     echo $(($num%$max+$min))  
 }
 
-gpu_list=3
+gpu_list=1
 gpu_num=1
 addr_random=221
 master_port_random=23959
@@ -24,7 +24,7 @@ block_num=8
 consistency_loss_weight=50
 checkpoint_tmp_dir=data/Momentum-GS/tmp/matrixcity/
 adaptive_sigma=9.0
-time=wogsplat-depth-l2-0.05-freq-offset+scale-interpolation1000-10
+time=wogsplat-depthl1-0.1-schedule
 # time=$(date "+%Y-%m-%d_%H:%M:%S")
 port=$(rand 10000 30000)
 addr_random=$(rand 0 255)

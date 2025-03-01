@@ -245,13 +245,147 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
     """
 
 
-    total_iterations = 10000
+    # total_iterations = 50000
+    # batch_size = 10000
+    # out_features = 1
+    # act_type = "sine"
+    # fft_type = "simple"
+    # hidden_features = 512
+    # num_hidden_layers = 5
+
+    # progress_bar = tqdm(range(first_iter, total_iterations), desc="Training progress")
+    # # model = modules.SimpleNet(type="sine", in_features=3, out_features=4, num_hidden_layers=5)
+    # model = modules.SimpleNet(type=act_type, mode="fft", in_features=3, out_features=out_features, fft_mode=fft_type, hidden_features=hidden_features, num_hidden_layers=num_hidden_layers)
+    # model.cuda()
+    # if out_features > 1:
+    #     loss_fn = loss_functions.sdf_extent
+    #     summary_fn = utility.write_sdf_summary_extent
+    # else:
+    #     loss_fn = loss_functions.sdf
+    #     summary_fn = utility.write_sdf_summary
+    # optim = torch.optim.Adam(lr=1e-4, params=model.parameters())
+
+
+    # # single_scene = scene.getTrainCameras().copy()[0]
+    # # single_scene_depth = single_scene.original_depth.cuda()
+    # # single_scene_normal = single_scene.original_normal.cuda()
+    # # points, mask = viewpoint_processor.depth2points(single_scene_depth, single_scene)
+    # # normals = single_scene_normal.permute(1, 2, 0).view(-1, 3)[mask]
+    # # points, normals = viewpoint_processor.transform2w(points, normals, single_scene)
+    # # del viewpoint_processor
+    # # viewpoint_processor = dataio.ViewPointPostProcess(points=points.clone().detach(), batch_size=batch_size, bound_extend_ratio=0.01)
+
+    # all_points = []
+    # for view in scene.getTrainCameras():
+    #     depth = view.original_depth.cuda()
+    #     normal = view.original_normal.cuda()
+    #     image = view.original_image.cuda()
+    #     points, mask = viewpoint_processor.depth2points(depth, view)
+    #     normals = normal.permute(1, 2, 0).view(-1, 3)[mask]
+    #     points, normals = viewpoint_processor.transform2w(points, normals, view)
+    #     all_points.append(points)
+    # all_points = torch.cat(all_points, dim=0)
+
+    # # viewpoint_processor = dataio.ViewPointPostProcess(points=all_points.clone().detach(), batch_size=batch_size, bound_extend_ratio=0.01)
+    # viewpoint_processor = dataio.ViewPointPostProcess(points=all_points.clone().detach(), batch_size=batch_size, bound_extend_ratio=[0.3, 0.3, 1])
+    # del all_points
+
+    # iteration = first_iter
+    # while iteration <= total_iterations:
+    #     progress_bar.update(1)
+    #     block_id = -1
+    #     viewpoint_stack = None
+    #     iter_start.record()
+    #     gaussians.update_learning_rate(iteration)
+    #     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
+    #     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+    #     # Pick a view randomly
+    #     if not viewpoint_stack:
+    #         viewpoint_stack = scene.getTrainCameras().copy()
+    #     viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+    #     # # single scene
+    #     # viewpoint_cam = single_scene
+    #     gt_image = viewpoint_cam.original_image.cuda()
+    #     gt_depth = viewpoint_cam.original_depth.cuda()
+    #     gt_normal = viewpoint_cam.original_normal.cuda()
+    #     gt_opacities = torch.ones_like(gt_depth)
+    #     model_input, gt = viewpoint_processor.propogate_data(gt_depth, gt_normal, gt_image, gt_opacities, viewpoint_cam)
+    #     if model_input == None or gt == None:
+    #         continue
+    #     model_input = {key: value.cuda() for key, value in model_input.items()}
+    #     gt = {key: value.cuda() for key, value in gt.items()}
+    #     model_output = model(model_input)
+    #     losses = loss_fn(model_output, gt)
+    #     train_l = 0.
+    #     for l_name, l in losses.items():
+    #         single_l = l.mean()
+    #         tb_writer.add_scalar(l_name, single_l, iteration)
+    #         train_l += single_l
+    #     tb_writer.add_scalar("total_train_l", train_l, iteration)
+    #     summary_fn(model, model_input, gt, model_output, tb_writer, iteration)
+    #     optim.zero_grad()
+    #     train_l.backward()
+    #     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+    #     optim.step()
+    #     iteration += 1
+    #     # torch.cuda.empty_cache()
+    #     if iteration % 10000 == 0:
+    #         torch.save(model.state_dict(), os.path.join(dataset.model_path, "model.pth"))
+    # torch.save(model.state_dict(), os.path.join(dataset.model_path, "model.pth"))
+
+    """
+    ****************************************************************
+    ****************************************************************
+    ****************************************************************
+    """
+    epochs = 1000
     batch_size = 10000
     out_features = 4
+    act_type = "sine"
+    fft_type = "gaussian"
+    hidden_features = 256
+    num_hidden_layers = 5
+    total_step = 0
+    voxel_size = 0.001
 
-    progress_bar = tqdm(range(first_iter, total_iterations), desc="Training progress")
-    # model = modules.SimpleNet(type="sine", in_features=3, out_features=4)
-    model = modules.SimpleNet(type="sine", mode="fft", in_features=3, out_features=out_features, fft_mode="simple")
+    all_points = []
+    all_normals = []
+    all_colors = []
+    for view in scene.getTrainCameras():
+        depth = view.original_depth.cuda()
+        normal = view.original_normal.cuda()
+        image = view.original_image
+        points, mask = viewpoint_processor.depth2points(depth, view)
+        normals = normal.permute(1, 2, 0).view(-1, 3)[mask]
+        colors = image.permute(1, 2, 0).view(-1, 3)[mask.cpu()]
+        points, normals = viewpoint_processor.transform2w(points, normals, view)
+        all_points.append(points)
+        all_normals.append(normals)
+        all_colors.append(colors)
+    all_points = torch.cat(all_points, dim=0)
+    all_normals = torch.cat(all_normals, dim=0)
+    all_colors = torch.cat(all_colors, dim=0)
+
+    all_points = all_points // voxel_size * voxel_size
+    all_points, indices, counts = torch.unique(all_points, dim=0, sorted=True, return_inverse=True, return_counts=True)
+    _, ind_sorted = torch.sort(indices, stable=True)
+    cum_sum = counts.cumsum(0)
+    cum_sum = torch.cat([torch.tensor([0], device=cum_sum.device), cum_sum[:-1]])
+    indices = ind_sorted[cum_sum]
+
+    all_normals = all_normals[indices]
+    all_colors = all_colors.cuda()[indices]
+    pnts = torch.cat([all_points, all_normals, all_colors], dim=1)
+    del all_points, all_normals, all_colors
+    torch.cuda.empty_cache()
+
+    viewpoint_processor = dataio.PointCloudPlus(pnts.cpu().numpy(), on_surface_points=batch_size, keep_aspect_ratio=True)
+    print("[INFO] lower bound: ", viewpoint_processor.lower_bound)
+    print("[INFO] upper bound: ", viewpoint_processor.upper_bound)
+    dataloader = DataLoader(viewpoint_processor, shuffle=True, batch_size=1, pin_memory=True, num_workers=0)
+
+    # model = modules.SimpleNet(type="sine", in_features=3, out_features=4, num_hidden_layers=5)
+    model = modules.SimpleNet(type=act_type, mode="fft", in_features=3, out_features=out_features, fft_mode=fft_type, hidden_features=hidden_features, num_hidden_layers=num_hidden_layers)
     model.cuda()
     if out_features > 1:
         loss_fn = loss_functions.sdf_extent
@@ -261,54 +395,32 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
         summary_fn = utility.write_sdf_summary
     optim = torch.optim.Adam(lr=1e-4, params=model.parameters())
 
-
-    single_scene = scene.getTrainCameras().copy()[0]
-    single_scene_depth = single_scene.original_depth.cuda()
-    single_scene_normal = single_scene.original_normal.cuda()
-    points, mask = viewpoint_processor.depth2points(single_scene_depth, single_scene)
-    normals = single_scene_normal.permute(1, 2, 0).view(-1, 3)[mask]
-    points, normals = viewpoint_processor.transform2w(points, normals, single_scene)
-    del viewpoint_processor
-    viewpoint_processor = dataio.ViewPointPostProcess(points=points.clone().detach(), batch_size=batch_size, bound_extend_ratio=0.01)
-
-    iteration = first_iter
-    while iteration <= total_iterations:
-        progress_bar.update(1)
-        block_id = -1
-        viewpoint_stack = None
-        iter_start.record()
-        gaussians.update_learning_rate(iteration)
-        bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
-        background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        # # Pick a view randomly
-        # if not viewpoint_stack:
-        #     viewpoint_stack = scene.getTrainCameras().copy()
-        # viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
-        # single scene
-        viewpoint_cam = single_scene
-        gt_image = viewpoint_cam.original_image.cuda()
-        gt_depth = viewpoint_cam.original_depth.cuda()
-        gt_normal = viewpoint_cam.original_normal.cuda()
-        gt_opacities = torch.ones_like(gt_depth)
-        model_input, gt = viewpoint_processor.propogate_data(gt_depth, gt_normal, gt_image, gt_opacities, viewpoint_cam)
-        model_input = {key: value.cuda() for key, value in model_input.items()}
-        gt = {key: value.cuda() for key, value in gt.items()}
-        model_output = model(model_input)
-        losses = loss_fn(model_output, gt)
-        train_l = 0.
-        for l_name, l in losses.items():
-            single_l = l.mean()
-            tb_writer.add_scalar(l_name, single_l, iteration)
-            train_l += single_l
-        tb_writer.add_scalar("total_train_l", train_l, iteration)
-        summary_fn(model, model_input, gt, model_output, tb_writer, iteration)
-        optim.zero_grad()
-        train_l.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-        optim.step()
-        iteration += 1
-        torch.cuda.empty_cache()
-    torch.save(model.state_dict(), os.path.join(dataset.model_path, "model.pth"))
+    with tqdm(total=len(dataloader) * epochs) as pbar:
+        for epoch in range(epochs):
+            for step, (model_input, gt) in enumerate(dataloader):
+                model_input = {key: value.cuda() for key, value in model_input.items()}
+                gt = {key: value.cuda() for key, value in gt.items()}
+                model_output = model(model_input)
+                losses = loss_fn(model_output, gt)
+                train_l = 0.
+                for l_name, l in losses.items():
+                    single_l = l.mean()
+                    tb_writer.add_scalar(l_name, single_l, total_step)
+                    train_l += single_l
+                tb_writer.add_scalar("total_train_l", train_l, total_step)
+                summary_fn(model, model_input, gt, model_output, tb_writer, total_step)
+                optim.zero_grad()
+                train_l.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
+                optim.step()
+                pbar.update(1)
+                total_step += 1
+            torch.save(model.state_dict(), os.path.join(dataset.model_path, "model.pth"))
+    """
+    ****************************************************************
+    ****************************************************************
+    ****************************************************************
+    """
     
     ################################################################
     ################ NOTE: test sdf with mesh ######################
@@ -317,8 +429,8 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
         def __init__(self, model_path):
             super().__init__()
             # self.model = modules.SingleBVPNet(type="sine", in_features=3)
-            # self.model = modules.SimpleNet(type="sine", in_features=3, out_features=4)
-            self.model = modules.SimpleNet(type="sine", mode="fft", in_features=3, out_features=out_features, fft_mode="simple")
+            # self.model = modules.SimpleNet(type="sine", in_features=3, out_features=4, num_hidden_layers=5)
+            self.model = modules.SimpleNet(type=act_type, mode="fft", in_features=3, out_features=out_features, fft_mode=fft_type, hidden_features=hidden_features, num_hidden_layers=num_hidden_layers)
             self.model.load_state_dict(torch.load(model_path))
             self.model.cuda()
 
@@ -328,6 +440,7 @@ def training(dataset, opt, pipe, dataset_name, saving_iterations, debug_from, wa
     
     sdf_decoder = SDFDecoder(os.path.join(dataset.model_path, "model.pth"))
     sdf_meshing.create_mesh_colors(sdf_decoder, os.path.join(dataset.model_path, f"mesh__"), N=512, lower_bound=viewpoint_processor.lower_bound, upper_bound=viewpoint_processor.upper_bound)
+    print(f"[INFO] mesh saved at {os.path.join(dataset.model_path, f'mesh__.ply')}")
     ################################################################
     ################################################################
     ################################################################

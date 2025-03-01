@@ -327,6 +327,23 @@ def convert_sdf_samples_to_ply_color(
             time.time() - start_time
         )
     )
+
+def points2ply(points, colors, filename):
+    with open(filename, 'w') as f:
+        f.write('ply\n')
+        f.write('format ascii 1.0\n')
+        f.write('element vertex %d\n' % len(points))
+        f.write('property float x\n')
+        f.write('property float y\n')
+        f.write('property float z\n')
+        f.write('property uchar red\n')
+        f.write('property uchar green\n')
+        f.write('property uchar blue\n')
+        f.write('end_header\n')
+        for i in range(len(points)):
+            f.write('%f %f %f %d %d %d\n' % (points[i][0], points[i][1], points[i][2], 
+                int(colors[i][0]*255), int(colors[i][1]*255), int(colors[i][2]*255))
+            )
 #############################################################################
 #############################################################################
 #############################################################################
