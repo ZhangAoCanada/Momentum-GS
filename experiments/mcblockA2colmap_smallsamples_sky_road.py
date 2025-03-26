@@ -35,9 +35,7 @@ def mat2quat(M):
 
 # option = "train"
 option = "test"
-# scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial/{option}"
-# scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial+somestreet/{option}"
-scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_aerial_nolookup/{option}"
+scene_dir = f"/data/zhangao/bdaibdai___MatrixCity/small_city/blockA_fusion_small_skyroad/{option}"
 pose_dir = scene_dir.replace(f'{option}', 'pose/block_A')
 poses_file = os.path.join(pose_dir, f'transforms_{option}.json')
 point3D_raw_path = "/data/zhangao/bdaibdai___MatrixCity/small_city/aerial/train/block_all/sparse/0/points3D.bin"
@@ -53,17 +51,38 @@ TO_MANHATTAN_WORLD = torch.FloatTensor([
 ])
 
 
-select_list = ['small_city_road_down/0108.png', 'small_city_road_down/0129.png', 'small_city_road_down/0425.png', 'small_city_road_down/1198.png', 'small_city_road_down/3820.png', 'small_city_road_down/3662.png', 'small_city_road_down/3686.png', 'small_city_road_down/3485.png', 'small_city_road_down/3497.png', 'small_city_road_down/3430.png', 'small_city_road_down/2770.png', 'small_city_road_down/2750.png', 'small_city_road_down/2761.png', 'small_city_road_down/2676.png', 'small_city_road_down/2700.png', 'small_city_road_down/2629.png', 'small_city_road_down/2667.png', 'small_city_road_down/1727.png', 'small_city_road_down/1489.png', 'small_city_road_down/1509.png', 'small_city_road_down/1532.png', 'small_city_road_down/1552.png', 'small_city_road_down/1330.png', 'small_city_road_down/1353.png', 'small_city_road_down/1376.png', 'small_city_road_down/1150.png', 'small_city_road_down/1174.png', 'small_city_road_down/1198.png']
-image_select_list = [item.split('/')[-1] for item in select_list]
-
-test_indpase_list = [277, 278, 279, 371, 372, 373, 374, 375, 376, 377, 433, 434, 435, 436, 437, 467, 499, 500, 501, 502, 536, 537, 538, 539, 540, 541]
-
+testlist = [i for i in range(1788, 1813)]
+testlist += [i for i in range(1648, 2713)]
+testlist += [i for i in range(3144, 3182)]
+testlist += [3371, 3372]
+testlist += [i for i in range(3603, 3633)]
+testlist += [i for i in range(3839, 3940)]
+testlist += [i for i in range(5415, 5418)]
+testlist += [i for i in range(5509, 5516)]
+testlist += [i for i in range(5571, 5576)]
+testlist += [i for i in range(5605, 5641)]
+testlist += [i for i in range(5674, 5680)]
+testlist += [i for i in range(3767, 3775)]
 
 def read_pose(
-    scene_path: str, json_path: str, images: Dict, cameras: Dict, points3d_new: Dict, point3D_raw_path: str = None
+    scene_path: str, images: Dict, cameras: Dict, points3d_new: Dict, point3D_raw_path: str = None
 ) -> Tuple[Dict, Dict]:
-    with open(json_path, "r", encoding="utf-8") as json_file:
-        metadata = json.load(json_file)
+
+    poses_file_train = os.path.join(pose_dir, f'transforms_train.json')
+    poses_file_test = os.path.join(pose_dir, f'transforms_test.json')
+    with open(poses_file_train, "r", encoding="utf-8") as json_file:
+        metadata_train = json.load(json_file)
+
+    with open(poses_file_test, "r", encoding="utf-8") as json_file:
+        metadata_test = json.load(json_file)
+    
+    print("[INFO] train.json has num frames: ", len(metadata_train["frames"]))
+    print("[INFO] test.json has num frames: ", len(metadata_test["frames"]))
+
+    # combine metadata_train and metadata_test, which have the same structure
+    metadata = metadata_train
+    metadata["frames"].extend(metadata_test["frames"])
+    print("[INFO] combined json has num frames: ", len(metadata["frames"])) 
 
     num_frames = len(metadata["frames"])
     camera_model = metadata["camera_model"]
@@ -91,11 +110,13 @@ def read_pose(
 
         fx, fy, cx, cy, w, h = int(fx), int(fy), int(cx), int(cy), int(w), int(h)
 
+        ### NOTE: cameras
         params = [fx, cx, cy]
         camera = Camera(id=-1, model=camera_model, width=w, height=h, params=params)
         camera_id = get_camera_id(cameras, camera)
         camera = Camera(id=camera_id, model=camera_model, width=w, height=h, params=params)
         cameras[camera_id] = camera
+        ### 
 
         image_path = frame["file_path"]
         
@@ -104,11 +125,9 @@ def read_pose(
         # c2w[:3, :3] = TO_MANHATTAN_WORLD @ c2w[:3, :3] @ MATRIX_CITY_TO_COLMAP
         # c2w[:3, :3] = TO_MANHATTAN_WORLD @ c2w[:3, :3]
         c2w[:3, :3] = c2w[:3, :3] @ MATRIX_CITY_TO_COLMAP
-        ################ NOTE: get a small region of the city ############ 
         camera_center = c2w[:3, 3]
         if (camera_center[0] > x_max or camera_center[0] < x_min) or (camera_center[1] > y_max or camera_center[1] < y_min):
             continue
-        ### NOTE: copy images
         image_abs_path = os.path.abspath(image_path)
         image_abs_split = image_abs_path.split('/')
         image_parent_path = '/'.join(image_abs_split[:-2])
@@ -124,11 +143,11 @@ def read_pose(
             print(normal_path)
             raise FileNotFoundError
 
-        if option=="train" and "aerial" not in image_path and "/".join(image_path.split('/')[-2:]) not in select_list:
-            print("/".join(image_path.split('/')[-2:]))
+        if option == "train" and "aerial" not in image_path:
             continue
-
-        if option == "test" and i in test_indpase_list:
+        if option == "test" and "aerial" in image_path:
+            continue
+        if option == "test" and i in testlist:
             continue
 
         image_name = '%04d.png' % i
@@ -141,13 +160,11 @@ def read_pose(
         # rotation_matrix = c2w[:3, :3]
         # if np.abs(rotation_matrix[0, 2]) < 1e-3 and np.abs(rotation_matrix[1, 2]) < 1e-3:
         #     continue
-        ###################################################################
         w2c = torch.inverse(c2w)
         qvec = R.from_matrix(w2c[:3, :3].numpy()).as_quat()
         tvec = w2c[:3, 3]
         qvec = np.array([qvec[3], qvec[0], qvec[1], qvec[2]])
         tvec = np.array([tvec[0], tvec[1], tvec[2]])
-        ################# NOTE: check if points are in the image ##########
         if "aerial" in image_path:
             points3d_incam = w2c[:3, :3] @ points_xyz.T + w2c[:3, 3].reshape(3, 1)
             z_mask = points3d_incam.cpu().numpy()[2] > 0
@@ -155,7 +172,6 @@ def read_pose(
             current_mask = np.logical_and(points2d[0] > 0, np.logical_and(points2d[0] < w, np.logical_and(points2d[1] > 0, points2d[1] < h)))
             current_mask = np.logical_and(current_mask, z_mask)
             mask = np.logical_or(mask, current_mask)
-        ###################################################################
 
         images[image_id] = Image(
             id=image_id,
@@ -187,7 +203,7 @@ def read_pose(
 
 images, cameras, point3d_new = {}, {}, {}
 read_pose(
-    scene_dir, poses_file, images, cameras, point3d_new, point3D_raw_path
+    scene_dir, images, cameras, point3d_new, point3D_raw_path
 )
 
 colmap_dir = os.path.join(scene_dir, "sparse/0")
